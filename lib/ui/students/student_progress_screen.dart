@@ -198,6 +198,15 @@ class _StudentProgressScreenState extends State<StudentProgressScreen> {
                 const SizedBox(height: 10),
                 SizedBox(
                   width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => context.push('${AppRoutes.classDocuments}?classId=${Uri.encodeComponent(clazz.id)}&studentId=${Uri.encodeComponent(student.id)}'),
+                    icon: const Icon(Icons.folder_open_outlined),
+                    label: const Text('Student Documents'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
                   child: FilledButton.icon(
                     onPressed: () => context.push('/student/edit/${Uri.encodeComponent(student.id)}'),
                     icon: const Icon(Icons.edit_outlined),

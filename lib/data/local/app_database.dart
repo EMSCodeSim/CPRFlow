@@ -23,6 +23,68 @@ enum ClassFinalizationStatus { notStarted, inProgress }
 /// Phase 3: Stored on students, used only during finalization.
 enum ManualStudentResultOverride { none, pass, incomplete, fail }
 
+/// Phase 5: Document categories (not file types).
+enum DocumentType {
+  writtenTest,
+  classRoster,
+  atlasRoster,
+  attendance,
+  studentSkillSheet,
+  studentEvaluation,
+  studentPhoto,
+  miscellaneous,
+}
+
+class DocumentTypeConverter extends TypeConverter<DocumentType, String> {
+  const DocumentTypeConverter();
+
+  @override
+  DocumentType fromSql(String fromDb) {
+    switch (fromDb) {
+      case 'written_test':
+        return DocumentType.writtenTest;
+      case 'class_roster':
+        return DocumentType.classRoster;
+      case 'atlas_roster':
+        return DocumentType.atlasRoster;
+      case 'attendance':
+        return DocumentType.attendance;
+      case 'student_skill_sheet':
+        return DocumentType.studentSkillSheet;
+      case 'student_evaluation':
+        return DocumentType.studentEvaluation;
+      case 'student_photo':
+        return DocumentType.studentPhoto;
+      case 'miscellaneous':
+        return DocumentType.miscellaneous;
+      default:
+        return DocumentType.miscellaneous;
+    }
+  }
+
+  @override
+  String toSql(DocumentType value) {
+    switch (value) {
+      case DocumentType.writtenTest:
+        return 'written_test';
+      case DocumentType.classRoster:
+        return 'class_roster';
+      case DocumentType.atlasRoster:
+        return 'atlas_roster';
+      case DocumentType.attendance:
+        return 'attendance';
+      case DocumentType.studentSkillSheet:
+        return 'student_skill_sheet';
+      case DocumentType.studentEvaluation:
+        return 'student_evaluation';
+      case DocumentType.studentPhoto:
+        return 'student_photo';
+      case DocumentType.miscellaneous:
+        return 'miscellaneous';
+    }
+  }
+}
+
 class CourseTypeConverter extends TypeConverter<CourseType, String> {
   const CourseTypeConverter();
 
@@ -427,7 +489,39 @@ class FinalizationAuditEntries extends Table {
   Set<Column> get primaryKey => {id};
 }
 
-@DriftDatabase(tables: [ClassRecords, StudentRecords, ChecklistAttempts, ChecklistItemResults, CcfSessions, FinalClassSnapshots, FinalizationAuditEntries])
+/// Phase 5: Securely managed documents stored in app-private storage.
+///
+/// IMPORTANT: No absolute paths are stored in Drift. Files are resolved via
+/// DocumentStorageService using (classId, storageFilename).
+class ClassDocuments extends Table {
+  TextColumn get id => text()();
+  TextColumn get classId => text().references(ClassRecords, #id, onDelete: KeyAction.restrict)();
+  TextColumn get studentId => text().nullable().references(StudentRecords, #id, onDelete: KeyAction.setNull)();
+
+  TextColumn get documentType => text().map(const DocumentTypeConverter())();
+  TextColumn get displayName => text()();
+  TextColumn get originalFilename => text()();
+  TextColumn get storageFilename => text()();
+  TextColumn get mimeType => text()();
+  IntColumn get fileSize => integer()();
+  IntColumn get pageCount => integer().nullable()();
+  TextColumn get checksum => text()();
+  TextColumn get notes => text().nullable()();
+  BoolColumn get deleted => boolean().withDefault(const Constant(false))();
+
+  DateTimeColumn get createdAt => dateTime()();
+  DateTimeColumn get updatedAt => dateTime()();
+
+  @override
+  Set<Column> get primaryKey => {id};
+
+  @override
+  List<Set<Column<Object>>> get uniqueKeys => [
+    {classId, storageFilename},
+  ];
+}
+
+@DriftDatabase(tables: [ClassRecords, StudentRecords, ChecklistAttempts, ChecklistItemResults, CcfSessions, FinalClassSnapshots, FinalizationAuditEntries, ClassDocuments])
 class AppDatabase extends _$AppDatabase {
   AppDatabase(QueryExecutor e) : super(e);
 
@@ -463,7 +557,7 @@ class AppDatabase extends _$AppDatabase {
   }
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -486,6 +580,12 @@ class AppDatabase extends _$AppDatabase {
       await customStatement('CREATE INDEX IF NOT EXISTS final_class_snapshots_class_id_idx ON final_class_snapshots(class_id);');
       await customStatement('CREATE UNIQUE INDEX IF NOT EXISTS final_class_snapshots_class_number_unique ON final_class_snapshots(class_id, snapshot_number);');
       await customStatement('CREATE INDEX IF NOT EXISTS finalization_audit_entries_class_id_idx ON finalization_audit_entries(class_id, timestamp);');
+
+      // Phase 5: document indices for search and health checks.
+      await customStatement('CREATE INDEX IF NOT EXISTS class_documents_class_id_idx ON class_documents(class_id, updated_at);');
+      await customStatement('CREATE INDEX IF NOT EXISTS class_documents_student_id_idx ON class_documents(student_id, updated_at);');
+      await customStatement('CREATE INDEX IF NOT EXISTS class_documents_type_idx ON class_documents(class_id, document_type, updated_at);');
+      await customStatement('CREATE INDEX IF NOT EXISTS class_documents_deleted_idx ON class_documents(class_id, deleted);');
     },
     onUpgrade: (m, from, to) async {
       if (from == 1) {
@@ -546,6 +646,14 @@ class AppDatabase extends _$AppDatabase {
         await customStatement('CREATE INDEX IF NOT EXISTS final_class_snapshots_class_id_idx ON final_class_snapshots(class_id);');
         await customStatement('CREATE UNIQUE INDEX IF NOT EXISTS final_class_snapshots_class_number_unique ON final_class_snapshots(class_id, snapshot_number);');
         await customStatement('CREATE INDEX IF NOT EXISTS finalization_audit_entries_class_id_idx ON finalization_audit_entries(class_id, timestamp);');
+      }
+
+      if (from <= 4 && to >= 5) {
+        await m.createTable(classDocuments);
+        await customStatement('CREATE INDEX IF NOT EXISTS class_documents_class_id_idx ON class_documents(class_id, updated_at);');
+        await customStatement('CREATE INDEX IF NOT EXISTS class_documents_student_id_idx ON class_documents(student_id, updated_at);');
+        await customStatement('CREATE INDEX IF NOT EXISTS class_documents_type_idx ON class_documents(class_id, document_type, updated_at);');
+        await customStatement('CREATE INDEX IF NOT EXISTS class_documents_deleted_idx ON class_documents(class_id, deleted);');
       }
     },
   );

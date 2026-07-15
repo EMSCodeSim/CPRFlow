@@ -7,6 +7,9 @@ version: 1.0.0+1
 environment:
   sdk: ^3.6.0
 dependencies:
+  pdfx: ^2.0.0
+  image_picker: '>=1.1.2'
+  archive: ^4.0.0
   intl: ^0.20.2
   file_picker: '>=8.1.2'
   share_plus: ^10.1.4

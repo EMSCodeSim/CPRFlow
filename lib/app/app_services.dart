@@ -2,9 +2,11 @@ import 'package:cpr_instructor_doc/data/local/app_database.dart';
 import 'package:cpr_instructor_doc/data/repositories/ccf_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/checklist_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/class_repository.dart';
+import 'package:cpr_instructor_doc/data/repositories/document_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/score_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/student_repository.dart';
 import 'package:cpr_instructor_doc/domain/completion/student_completion_service.dart';
+import 'package:cpr_instructor_doc/domain/documents/document_storage_service.dart';
 import 'package:cpr_instructor_doc/domain/finalization/class_finalization_service.dart';
 import 'package:cpr_instructor_doc/domain/archive/class_working_copy_service.dart';
 import 'package:cpr_instructor_doc/domain/reports/class_report_service.dart';
@@ -19,10 +21,12 @@ class AppServices {
         checklistRepository = ChecklistRepository(database),
         ccfRepository = CcfRepository(database),
         scoreRepository = ScoreRepository(database),
+        documentRepository = DocumentRepository(database),
         studentCompletionService = StudentCompletionService.unwired(),
         classFinalizationService = null,
         classWorkingCopyService = database == null ? null : ClassWorkingCopyService(database),
-        classReportService = null;
+        classReportService = null,
+        documentStorageService = database == null ? null : DocumentStorageService(db: database!, repository: DocumentRepository(database));
 
   /// Must be called after the default constructor so [studentCompletionService]
   /// can reference the same repository instances.
@@ -58,10 +62,12 @@ class AppServices {
     required this.checklistRepository,
     required this.ccfRepository,
     required this.scoreRepository,
+    required this.documentRepository,
     required this.studentCompletionService,
     this.classReportService,
     this.classFinalizationService,
     this.classWorkingCopyService,
+    this.documentStorageService,
   });
 
   /// A running Drift database instance.
@@ -74,12 +80,14 @@ class AppServices {
   final ChecklistRepository checklistRepository;
   final CcfRepository ccfRepository;
   final ScoreRepository scoreRepository;
+  final DocumentRepository documentRepository;
   final StudentCompletionService studentCompletionService;
 
   ClassReportService? classReportService;
 
   ClassFinalizationService? classFinalizationService;
   final ClassWorkingCopyService? classWorkingCopyService;
+  final DocumentStorageService? documentStorageService;
 
   bool get hasClassData => database != null;
 

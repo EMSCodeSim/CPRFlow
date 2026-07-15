@@ -25,4 +25,9 @@ class AppRoutes {
   static const archiveAtlas = '/archive'; // canonical: /archive/:classId/atlas
   static const atlasTemplateSettings = '/atlas/templates';
   static const pdfPreview = '/reports/pdf-preview';
+
+  // Phase 5
+  static const classDocuments = '/today/documents';
+  static const archivedDocuments = '/archive'; // canonical: /archive/:snapshotId/documents
+  static const documentPreview = '/documents/preview';
 }

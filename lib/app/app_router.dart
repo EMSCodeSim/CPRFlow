@@ -14,6 +14,9 @@ import 'package:cpr_instructor_doc/ui/reports/reports_center_screen.dart';
 import 'package:cpr_instructor_doc/ui/reports/pdf_preview_screen.dart';
 import 'package:cpr_instructor_doc/ui/atlas/atlas_export_review_screen.dart';
 import 'package:cpr_instructor_doc/ui/atlas/atlas_template_settings_screen.dart';
+import 'package:cpr_instructor_doc/ui/documents/class_documents_screen.dart';
+import 'package:cpr_instructor_doc/ui/documents/document_preview_screen.dart';
+import 'package:cpr_instructor_doc/ui/documents/document_preview_request.dart';
 import 'package:cpr_instructor_doc/ui/routes/safe_error_screen.dart';
 import 'package:cpr_instructor_doc/ui/routes/unknown_route_screen.dart';
 import 'package:cpr_instructor_doc/ui/scores/score_entry_screen.dart';
@@ -211,6 +214,51 @@ class AppRouter {
         path: AppRoutes.pdfPreview,
         name: 'pdfPreview',
         pageBuilder: (context, state) => MaterialPage(child: PdfPreviewScreen(request: state.extra)),
+      ),
+
+      // Phase 5
+      GoRoute(
+        path: AppRoutes.classDocuments,
+        name: 'classDocuments',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Documents are unavailable in recovery mode.'));
+          }
+          final classId = state.uri.queryParameters['classId'];
+          if (classId == null || classId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing class', message: 'No class ID provided.', onRetryLocation: AppRoutes.today));
+          }
+          final studentId = state.uri.queryParameters['studentId'];
+          if (studentId != null && studentId.isNotEmpty) {
+            return MaterialPage(child: ClassDocumentsScreen.student(classId: classId, studentId: studentId, readOnly: false));
+          }
+          return MaterialPage(child: ClassDocumentsScreen.live(classId: classId));
+        },
+      ),
+      GoRoute(
+        path: '/archive/:snapshotId/documents',
+        name: 'archivedDocuments',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Documents are unavailable in recovery mode.'));
+          }
+          final snapshotId = state.pathParameters['snapshotId'];
+          if (snapshotId == null || snapshotId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing snapshot', message: 'No snapshot ID provided.', onRetryLocation: AppRoutes.archive));
+          }
+          return MaterialPage(child: ClassDocumentsScreen.snapshot(snapshotId: snapshotId));
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.documentPreview,
+        name: 'documentPreview',
+        pageBuilder: (context, state) {
+          final req = state.extra;
+          if (req is! DocumentPreviewRequest) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing document', message: 'No preview request provided.'));
+          }
+          return MaterialPage(child: DocumentPreviewScreen(request: req));
+        },
       ),
 
       GoRoute(

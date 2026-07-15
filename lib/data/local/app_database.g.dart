@@ -2340,6 +2340,307 @@ class FinalizationAuditEntriesCompanion extends UpdateCompanion<FinalizationAudi
   }
 }
 
+class $ClassDocumentsTable extends ClassDocuments with TableInfo<$ClassDocumentsTable, ClassDocument> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ClassDocumentsTable(this.attachedDatabase, [this._alias]);
+
+  static const VerificationMeta _idMeta = VerificationMeta('id');
+  static const VerificationMeta _classIdMeta = VerificationMeta('classId');
+  static const VerificationMeta _studentIdMeta = VerificationMeta('studentId');
+  static const VerificationMeta _documentTypeMeta = VerificationMeta('documentType');
+  static const VerificationMeta _displayNameMeta = VerificationMeta('displayName');
+  static const VerificationMeta _originalFilenameMeta = VerificationMeta('originalFilename');
+  static const VerificationMeta _storageFilenameMeta = VerificationMeta('storageFilename');
+  static const VerificationMeta _mimeTypeMeta = VerificationMeta('mimeType');
+  static const VerificationMeta _fileSizeMeta = VerificationMeta('fileSize');
+  static const VerificationMeta _pageCountMeta = VerificationMeta('pageCount');
+  static const VerificationMeta _checksumMeta = VerificationMeta('checksum');
+  static const VerificationMeta _notesMeta = VerificationMeta('notes');
+  static const VerificationMeta _deletedMeta = VerificationMeta('deleted');
+  static const VerificationMeta _createdAtMeta = VerificationMeta('createdAt');
+  static const VerificationMeta _updatedAtMeta = VerificationMeta('updatedAt');
+
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>('id', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> classId = GeneratedColumn<String>(
+    'class_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('REFERENCES "class_records" ("id") ON DELETE RESTRICT'),
+  );
+  @override
+  late final GeneratedColumn<String> studentId = GeneratedColumn<String>(
+    'student_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('REFERENCES "student_records" ("id") ON DELETE SET NULL'),
+  );
+  @override
+  late final GeneratedColumnWithTypeConverter<DocumentType, String> documentType = GeneratedColumn<String>(
+    'document_type',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  ).withConverter<DocumentType>($ClassDocumentsTable.$converterdocumentType);
+  @override
+  late final GeneratedColumn<String> displayName = GeneratedColumn<String>('display_name', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> originalFilename = GeneratedColumn<String>('original_filename', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> storageFilename = GeneratedColumn<String>('storage_filename', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> mimeType = GeneratedColumn<String>('mime_type', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<int> fileSize = GeneratedColumn<int>('file_size', aliasedName, false, type: DriftSqlType.int, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<int> pageCount = GeneratedColumn<int>('page_count', aliasedName, true, type: DriftSqlType.int, requiredDuringInsert: false);
+  @override
+  late final GeneratedColumn<String> checksum = GeneratedColumn<String>('checksum', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> notes = GeneratedColumn<String>('notes', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  late final GeneratedColumn<bool> deleted = GeneratedColumn<bool>('deleted', aliasedName, false, type: DriftSqlType.bool, requiredDuringInsert: false, defaultValue: const Constant(false));
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>('created_at', aliasedName, false, type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<DateTime> updatedAt = GeneratedColumn<DateTime>('updated_at', aliasedName, false, type: DriftSqlType.dateTime, requiredDuringInsert: true);
+
+  @override
+  List<GeneratedColumn> get $columns => [id, classId, studentId, documentType, displayName, originalFilename, storageFilename, mimeType, fileSize, pageCount, checksum, notes, deleted, createdAt, updatedAt];
+
+  @override
+  String get aliasedName => _alias ?? 'class_documents';
+  @override
+  String get actualTableName => 'class_documents';
+
+  static TypeConverter<DocumentType, String> $converterdocumentType = const DocumentTypeConverter();
+
+  @override
+  VerificationContext validateIntegrity(Insertable<ClassDocument> instance, {bool isInserting = false}) {
+    final ctx = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) ctx.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    if (data.containsKey('class_id')) ctx.handle(_classIdMeta, classId.isAcceptableOrUnknown(data['class_id']!, _classIdMeta));
+    if (data.containsKey('student_id')) ctx.handle(_studentIdMeta, studentId.isAcceptableOrUnknown(data['student_id']!, _studentIdMeta));
+    if (data.containsKey('display_name')) ctx.handle(_displayNameMeta, displayName.isAcceptableOrUnknown(data['display_name']!, _displayNameMeta));
+    if (data.containsKey('original_filename')) ctx.handle(_originalFilenameMeta, originalFilename.isAcceptableOrUnknown(data['original_filename']!, _originalFilenameMeta));
+    if (data.containsKey('storage_filename')) ctx.handle(_storageFilenameMeta, storageFilename.isAcceptableOrUnknown(data['storage_filename']!, _storageFilenameMeta));
+    if (data.containsKey('mime_type')) ctx.handle(_mimeTypeMeta, mimeType.isAcceptableOrUnknown(data['mime_type']!, _mimeTypeMeta));
+    if (data.containsKey('file_size')) ctx.handle(_fileSizeMeta, fileSize.isAcceptableOrUnknown(data['file_size']!, _fileSizeMeta));
+    if (data.containsKey('page_count')) ctx.handle(_pageCountMeta, pageCount.isAcceptableOrUnknown(data['page_count']!, _pageCountMeta));
+    if (data.containsKey('checksum')) ctx.handle(_checksumMeta, checksum.isAcceptableOrUnknown(data['checksum']!, _checksumMeta));
+    if (data.containsKey('notes')) ctx.handle(_notesMeta, notes.isAcceptableOrUnknown(data['notes']!, _notesMeta));
+    if (data.containsKey('deleted')) ctx.handle(_deletedMeta, deleted.isAcceptableOrUnknown(data['deleted']!, _deletedMeta));
+    if (data.containsKey('created_at')) ctx.handle(_createdAtMeta, createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta));
+    if (data.containsKey('updated_at')) ctx.handle(_updatedAtMeta, updatedAt.isAcceptableOrUnknown(data['updated_at']!, _updatedAtMeta));
+    return ctx;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+
+  @override
+  List<Set<GeneratedColumn>> get uniqueKeys => [
+        {classId, storageFilename},
+      ];
+
+  @override
+  ClassDocument map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ClassDocument(
+      id: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      classId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}class_id'])!,
+      studentId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}student_id']),
+      documentType: documentType.converter.fromSql(attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}document_type'])!),
+      displayName: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}display_name'])!,
+      originalFilename: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}original_filename'])!,
+      storageFilename: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}storage_filename'])!,
+      mimeType: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}mime_type'])!,
+      fileSize: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}file_size'])!,
+      pageCount: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}page_count']),
+      checksum: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}checksum'])!,
+      notes: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}notes']),
+      deleted: attachedDatabase.typeMapping.read(DriftSqlType.bool, data['${effectivePrefix}deleted'])!,
+      createdAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      updatedAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
+    );
+  }
+
+  @override
+  $ClassDocumentsTable createAlias(String alias) => $ClassDocumentsTable(attachedDatabase, alias);
+}
+
+class ClassDocument extends DataClass implements Insertable<ClassDocument> {
+  const ClassDocument({
+    required this.id,
+    required this.classId,
+    this.studentId,
+    required this.documentType,
+    required this.displayName,
+    required this.originalFilename,
+    required this.storageFilename,
+    required this.mimeType,
+    required this.fileSize,
+    this.pageCount,
+    required this.checksum,
+    this.notes,
+    required this.deleted,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String id;
+  final String classId;
+  final String? studentId;
+  final DocumentType documentType;
+  final String displayName;
+  final String originalFilename;
+  final String storageFilename;
+  final String mimeType;
+  final int fileSize;
+  final int? pageCount;
+  final String checksum;
+  final String? notes;
+  final bool deleted;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['class_id'] = Variable<String>(classId);
+    if (!nullToAbsent || studentId != null) map['student_id'] = Variable<String>(studentId!);
+    map['document_type'] = Variable<String>($ClassDocumentsTable.$converterdocumentType.toSql(documentType));
+    map['display_name'] = Variable<String>(displayName);
+    map['original_filename'] = Variable<String>(originalFilename);
+    map['storage_filename'] = Variable<String>(storageFilename);
+    map['mime_type'] = Variable<String>(mimeType);
+    map['file_size'] = Variable<int>(fileSize);
+    if (!nullToAbsent || pageCount != null) map['page_count'] = Variable<int>(pageCount!);
+    map['checksum'] = Variable<String>(checksum);
+    if (!nullToAbsent || notes != null) map['notes'] = Variable<String>(notes!);
+    map['deleted'] = Variable<bool>(deleted);
+    map['created_at'] = Variable<DateTime>(createdAt);
+    map['updated_at'] = Variable<DateTime>(updatedAt);
+    return map;
+  }
+
+  ClassDocumentsCompanion toCompanion(bool nullToAbsent) => ClassDocumentsCompanion(
+        id: Value(id),
+        classId: Value(classId),
+        studentId: studentId == null && nullToAbsent ? const Value.absent() : Value(studentId),
+        documentType: Value(documentType),
+        displayName: Value(displayName),
+        originalFilename: Value(originalFilename),
+        storageFilename: Value(storageFilename),
+        mimeType: Value(mimeType),
+        fileSize: Value(fileSize),
+        pageCount: pageCount == null && nullToAbsent ? const Value.absent() : Value(pageCount),
+        checksum: Value(checksum),
+        notes: notes == null && nullToAbsent ? const Value.absent() : Value(notes),
+        deleted: Value(deleted),
+        createdAt: Value(createdAt),
+        updatedAt: Value(updatedAt),
+      );
+
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'classId': serializer.toJson<String>(classId),
+      'studentId': serializer.toJson<String?>(studentId),
+      'documentType': serializer.toJson<String>($ClassDocumentsTable.$converterdocumentType.toSql(documentType)),
+      'displayName': serializer.toJson<String>(displayName),
+      'originalFilename': serializer.toJson<String>(originalFilename),
+      'storageFilename': serializer.toJson<String>(storageFilename),
+      'mimeType': serializer.toJson<String>(mimeType),
+      'fileSize': serializer.toJson<int>(fileSize),
+      'pageCount': serializer.toJson<int?>(pageCount),
+      'checksum': serializer.toJson<String>(checksum),
+      'notes': serializer.toJson<String?>(notes),
+      'deleted': serializer.toJson<bool>(deleted),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'updatedAt': serializer.toJson<DateTime>(updatedAt),
+    };
+  }
+}
+
+class ClassDocumentsCompanion extends UpdateCompanion<ClassDocument> {
+  const ClassDocumentsCompanion({
+    this.id = const Value.absent(),
+    this.classId = const Value.absent(),
+    this.studentId = const Value.absent(),
+    this.documentType = const Value.absent(),
+    this.displayName = const Value.absent(),
+    this.originalFilename = const Value.absent(),
+    this.storageFilename = const Value.absent(),
+    this.mimeType = const Value.absent(),
+    this.fileSize = const Value.absent(),
+    this.pageCount = const Value.absent(),
+    this.checksum = const Value.absent(),
+    this.notes = const Value.absent(),
+    this.deleted = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.updatedAt = const Value.absent(),
+  });
+
+  final Value<String> id;
+  final Value<String> classId;
+  final Value<String?> studentId;
+  final Value<DocumentType> documentType;
+  final Value<String> displayName;
+  final Value<String> originalFilename;
+  final Value<String> storageFilename;
+  final Value<String> mimeType;
+  final Value<int> fileSize;
+  final Value<int?> pageCount;
+  final Value<String> checksum;
+  final Value<String?> notes;
+  final Value<bool> deleted;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> updatedAt;
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) map['id'] = Variable<String>(id.value);
+    if (classId.present) map['class_id'] = Variable<String>(classId.value);
+    if (studentId.present) {
+      final v = studentId.value;
+      if (!nullToAbsent || v != null) map['student_id'] = Variable<String>(v!);
+    }
+    if (documentType.present) map['document_type'] = Variable<String>($ClassDocumentsTable.$converterdocumentType.toSql(documentType.value));
+    if (displayName.present) map['display_name'] = Variable<String>(displayName.value);
+    if (originalFilename.present) map['original_filename'] = Variable<String>(originalFilename.value);
+    if (storageFilename.present) map['storage_filename'] = Variable<String>(storageFilename.value);
+    if (mimeType.present) map['mime_type'] = Variable<String>(mimeType.value);
+    if (fileSize.present) map['file_size'] = Variable<int>(fileSize.value);
+    if (pageCount.present) {
+      final v = pageCount.value;
+      if (!nullToAbsent || v != null) map['page_count'] = Variable<int>(v!);
+    }
+    if (checksum.present) map['checksum'] = Variable<String>(checksum.value);
+    if (notes.present) {
+      final v = notes.value;
+      if (!nullToAbsent || v != null) map['notes'] = Variable<String>(v!);
+    }
+    if (deleted.present) map['deleted'] = Variable<bool>(deleted.value);
+    if (createdAt.present) map['created_at'] = Variable<DateTime>(createdAt.value);
+    if (updatedAt.present) map['updated_at'] = Variable<DateTime>(updatedAt.value);
+    return map;
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
 
@@ -2350,10 +2651,11 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $CcfSessionsTable ccfSessions = $CcfSessionsTable(this);
   late final $FinalClassSnapshotsTable finalClassSnapshots = $FinalClassSnapshotsTable(this);
   late final $FinalizationAuditEntriesTable finalizationAuditEntries = $FinalizationAuditEntriesTable(this);
+  late final $ClassDocumentsTable classDocuments = $ClassDocumentsTable(this);
 
   @override
-  Iterable<TableInfo<Table, dynamic>> get allTables => [classRecords, studentRecords, checklistAttempts, checklistItemResults, ccfSessions, finalClassSnapshots, finalizationAuditEntries];
+  Iterable<TableInfo<Table, dynamic>> get allTables => [classRecords, studentRecords, checklistAttempts, checklistItemResults, ccfSessions, finalClassSnapshots, finalizationAuditEntries, classDocuments];
 
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [classRecords, studentRecords, checklistAttempts, checklistItemResults, ccfSessions, finalClassSnapshots, finalizationAuditEntries];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [classRecords, studentRecords, checklistAttempts, checklistItemResults, ccfSessions, finalClassSnapshots, finalizationAuditEntries, classDocuments];
 }

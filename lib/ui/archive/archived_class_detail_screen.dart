@@ -55,6 +55,11 @@ class ArchivedClassDetailScreen extends StatelessWidget {
             title: const Text('Finalized Snapshot — Read Only'),
             actions: [
               IconButton(
+                tooltip: 'Documents',
+                onPressed: () => context.push('/archive/$snapshotId/documents'),
+                icon: const Icon(Icons.folder_open_outlined),
+              ),
+              IconButton(
                 tooltip: 'Reports',
                 onPressed: () => context.push('/archive/$snapshotId/reports'),
                 icon: const Icon(Icons.description_outlined),

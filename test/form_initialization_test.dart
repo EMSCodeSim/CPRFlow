@@ -7,6 +7,7 @@ import 'package:cpr_instructor_doc/data/local/app_database.dart';
 import 'package:cpr_instructor_doc/data/repositories/class_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/ccf_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/checklist_repository.dart';
+import 'package:cpr_instructor_doc/data/repositories/document_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/score_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/student_repository.dart';
 import 'package:cpr_instructor_doc/domain/completion/student_completion_service.dart';
@@ -78,6 +79,7 @@ void main() {
       checklistRepository: ChecklistRepository(db),
       ccfRepository: CcfRepository(db),
       scoreRepository: ScoreRepository(db),
+      documentRepository: DocumentRepository(db),
       studentCompletionService: StudentCompletionService.unwired()..wire(checklistRepository: ChecklistRepository(db), ccfRepository: CcfRepository(db)),
     );
     final router = AppRouter.buildRouter(hasClassData: true);

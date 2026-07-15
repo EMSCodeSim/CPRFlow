@@ -93,6 +93,17 @@ class _ReportsCenterScreenState extends State<ReportsCenterScreen> {
               ),
               const SizedBox(height: 12),
               _ReportActionCard(
+                title: 'Attached Documents',
+                subtitle: widget.isLive ? 'View, attach, and export local files' : 'View and export (read-only)',
+                icon: Icons.folder_open,
+                primaryLabel: 'Open',
+                onPrimary: () {
+                  final loc = widget.isLive ? '${AppRoutes.classDocuments}?classId=${widget.classId}' : '/archive/${widget.snapshotId}/documents';
+                  context.push(loc);
+                },
+              ),
+              const SizedBox(height: 12),
+              _ReportActionCard(
                 title: 'Master Skills Checklist',
                 subtitle: 'Adult + Infant/Child master matrix',
                 icon: Icons.grid_on,
