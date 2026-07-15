@@ -27,6 +27,30 @@ class MissingStoredDocumentException implements Exception {
   String toString() => 'MissingStoredDocumentException(documentId: $documentId)';
 }
 
+class InvalidDocumentException implements Exception {
+  InvalidDocumentException(this.message);
+  final String message;
+
+  @override
+  String toString() => 'InvalidDocumentException($message)';
+}
+
+class DuplicateDocumentException implements Exception {
+  DuplicateDocumentException(this.existingDocumentId);
+  final String existingDocumentId;
+
+  @override
+  String toString() => 'DuplicateDocumentException(existingDocumentId: $existingDocumentId)';
+}
+
+class ArchivedDocumentRecordIsReadOnlyException implements Exception {
+  ArchivedDocumentRecordIsReadOnlyException(this.classId);
+  final String classId;
+
+  @override
+  String toString() => 'ArchivedDocumentRecordIsReadOnlyException(classId: $classId)';
+}
+
 class StorageHealthIssue {
   StorageHealthIssue({required this.kind, required this.message, this.documentId, this.storageFilename});
 
@@ -114,10 +138,52 @@ class DocumentStorageService {
   Future<void> validateImportFile({required String originalFilename, required Uint8List bytes}) async {
     final ext = _extOf(originalFilename);
     if (!supportedExtensions.contains(ext)) throw UnsupportedDocumentTypeException(ext);
-    if (bytes.isEmpty) throw StateError('Cannot import empty file');
-    if (ext == 'pdf') {
-      final prefix = utf8.decode(bytes.take(4).toList(), allowMalformed: true);
-      if (prefix != '%PDF') debugPrint('Warning: Imported PDF does not start with %PDF (filename=$originalFilename)');
+    if (bytes.isEmpty) throw InvalidDocumentException('Cannot import an empty file.');
+
+    bool startsWith(List<int> signature) {
+      if (bytes.length < signature.length) return false;
+      for (var i = 0; i < signature.length; i++) {
+        if (bytes[i] != signature[i]) return false;
+      }
+      return true;
+    }
+
+    switch (ext) {
+      case 'pdf':
+        if (!startsWith(const [0x25, 0x50, 0x44, 0x46, 0x2D])) {
+          throw InvalidDocumentException('The selected file is not a readable PDF.');
+        }
+        break;
+      case 'png':
+        if (!startsWith(const [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])) {
+          throw InvalidDocumentException('The selected file is not a valid PNG image.');
+        }
+        break;
+      case 'jpg':
+      case 'jpeg':
+        if (!startsWith(const [0xFF, 0xD8, 0xFF])) {
+          throw InvalidDocumentException('The selected file is not a valid JPEG image.');
+        }
+        break;
+      case 'heic':
+        // HEIC uses an ISO base media container. Require an ftyp box near the
+        // start rather than trusting only the filename extension.
+        if (bytes.length < 12 || utf8.decode(bytes.sublist(4, 8), allowMalformed: true) != 'ftyp') {
+          throw InvalidDocumentException('The selected file is not a valid HEIC image.');
+        }
+        break;
+      case 'txt':
+        // Text files may begin with any byte sequence; decoding is deferred to
+        // the viewer with normal error handling.
+        break;
+    }
+  }
+
+  Future<void> _requireEditableClass(String classId) async {
+    final clazz = await (_db.select(_db.classRecords)..where((t) => t.id.equals(classId))).getSingleOrNull();
+    if (clazz == null) throw StateError('Class not found');
+    if (clazz.lifecycleStatus != ClassLifecycleStatus.active) {
+      throw ArchivedDocumentRecordIsReadOnlyException(classId);
     }
   }
 
@@ -130,40 +196,65 @@ class DocumentStorageService {
     required Uint8List bytes,
     String? notes,
   }) async {
+    await _requireEditableClass(classId);
     await validateImportFile(originalFilename: originalFilename, bytes: bytes);
+
+    if (studentId != null) {
+      final student = await (_db.select(_db.studentRecords)..where((t) => t.id.equals(studentId))).getSingleOrNull();
+      if (student == null || student.classId != classId) {
+        throw StateError('The selected student does not belong to this class.');
+      }
+    }
+
     final ext = _extOf(originalFilename);
     final mimeType = _guessMimeType(ext);
     final checksum = await computeChecksumBytes(bytes);
+    final existingQuery = _db.select(_db.classDocuments)
+      ..where((t) => t.classId.equals(classId) & t.checksum.equals(checksum) & t.deleted.equals(false))
+      ..limit(1);
+    final existing = await existingQuery.getSingleOrNull();
+    if (existing != null) throw DuplicateDocumentException(existing.id);
+
     final now = DateTime.now();
     final storageName = _buildStorageFilename(originalFilename: originalFilename, checksum: checksum);
     final classDir = await _getClassDir(classId);
     final file = File(p.join(classDir.path, storageName));
-    await file.writeAsBytes(bytes, flush: true);
-    final size = await file.length();
-
     final id = _idGenerator.newId(prefix: 'doc');
-    final row = ClassDocumentsCompanion(
-      id: Value(id),
-      classId: Value(classId),
-      studentId: Value(studentId),
-      documentType: Value(documentType),
-      displayName: Value(displayName),
-      originalFilename: Value(originalFilename),
-      storageFilename: Value(storageName),
-      mimeType: Value(mimeType),
-      fileSize: Value(size),
-      pageCount: const Value.absent(),
-      checksum: Value(checksum),
-      notes: Value(notes),
-      deleted: const Value(false),
-      createdAt: Value(now),
-      updatedAt: Value(now),
-    );
 
-    await _db.into(_db.classDocuments).insert(row);
-    final created = await _repository.getById(id);
-    if (created == null) throw StateError('Failed to persist imported document');
-    return created;
+    try {
+      await file.writeAsBytes(bytes, flush: true);
+      final size = await file.length();
+      final row = ClassDocumentsCompanion(
+        id: Value(id),
+        classId: Value(classId),
+        studentId: Value(studentId),
+        documentType: Value(documentType),
+        displayName: Value(displayName.trim().isEmpty ? originalFilename : displayName.trim()),
+        originalFilename: Value(originalFilename),
+        storageFilename: Value(storageName),
+        mimeType: Value(mimeType),
+        fileSize: Value(size),
+        pageCount: const Value.absent(),
+        checksum: Value(checksum),
+        notes: Value(notes),
+        deleted: const Value(false),
+        createdAt: Value(now),
+        updatedAt: Value(now),
+      );
+      await _db.into(_db.classDocuments).insert(row);
+      final created = await _repository.getById(id);
+      if (created == null) throw StateError('Failed to persist imported document');
+      return created;
+    } catch (_) {
+      if (await file.exists()) {
+        try {
+          await file.delete();
+        } catch (_) {
+          // Storage audit will identify the orphan if cleanup is impossible.
+        }
+      }
+      rethrow;
+    }
   }
 
   String _buildStorageFilename({required String originalFilename, required String checksum}) {
@@ -181,16 +272,46 @@ class DocumentStorageService {
   }
 
   Future<void> rename({required ClassDocument doc, required String newDisplayName}) async {
+    await _requireEditableClass(doc.classId);
     final now = DateTime.now();
     await (_db.update(_db.classDocuments)..where((t) => t.id.equals(doc.id))).write(ClassDocumentsCompanion(displayName: Value(newDisplayName), updatedAt: Value(now)));
   }
 
+  Future<void> updateDetails({
+    required ClassDocument doc,
+    required String displayName,
+    required DocumentType documentType,
+    String? studentId,
+    String? notes,
+  }) async {
+    await _requireEditableClass(doc.classId);
+    if (studentId != null) {
+      final student = await (_db.select(_db.studentRecords)..where((t) => t.id.equals(studentId))).getSingleOrNull();
+      if (student == null || student.classId != doc.classId) throw StateError('The selected student does not belong to this class.');
+    }
+    await (_db.update(_db.classDocuments)..where((t) => t.id.equals(doc.id))).write(
+      ClassDocumentsCompanion(
+        displayName: Value(displayName.trim().isEmpty ? doc.originalFilename : displayName.trim()),
+        documentType: Value(documentType),
+        studentId: Value(studentId),
+        notes: Value(notes?.trim().isEmpty == true ? null : notes?.trim()),
+        updatedAt: Value(DateTime.now()),
+      ),
+    );
+  }
+
   Future<void> move({required ClassDocument doc, required DocumentType newType, String? newStudentId}) async {
+    await _requireEditableClass(doc.classId);
+    if (newStudentId != null) {
+      final student = await (_db.select(_db.studentRecords)..where((t) => t.id.equals(newStudentId))).getSingleOrNull();
+      if (student == null || student.classId != doc.classId) throw StateError('The selected student does not belong to this class.');
+    }
     final now = DateTime.now();
     await (_db.update(_db.classDocuments)..where((t) => t.id.equals(doc.id))).write(ClassDocumentsCompanion(documentType: Value(newType), studentId: Value(newStudentId), updatedAt: Value(now)));
   }
 
   Future<void> delete({required ClassDocument doc, bool hardDelete = false}) async {
+    await _requireEditableClass(doc.classId);
     try {
       final file = await openFile(doc);
       if (await file.exists()) await file.delete();
@@ -262,14 +383,25 @@ class DocumentStorageService {
   /// Writes a ZIP containing the class document folder.
   ///
   /// This is used by the full class package exporter.
-  Future<void> exportClassDocumentsToArchive({required String classId, required Archive archive}) async {
-    final classDir = await _getClassDir(classId);
-    if (!await classDir.exists()) return;
-    await for (final ent in classDir.list(followLinks: false)) {
-      if (ent is! File) continue;
-      final name = p.basename(ent.path);
-      final bytes = await ent.readAsBytes();
-      archive.addFile(ArchiveFile('Documents/${_sanitizeSegment(classId)}/$name', bytes.length, bytes));
+  Future<void> exportClassDocumentsToArchive({
+    required String classId,
+    required Archive archive,
+    void Function(String path, Uint8List bytes, String mimeType)? onFileAdded,
+  }) async {
+    final docs = await (_db.select(_db.classDocuments)
+          ..where((t) => t.classId.equals(classId) & t.deleted.equals(false)))
+        .get();
+
+    for (final doc in docs) {
+      final file = await openFile(doc);
+      final bytes = await file.readAsBytes();
+      final checksum = await computeChecksumBytes(bytes);
+      if (checksum != doc.checksum) {
+        throw InvalidDocumentException('Checksum validation failed for ${doc.displayName}.');
+      }
+      final path = 'Documents/${_sanitizeSegment(classId)}/${_sanitizeSegment(doc.storageFilename)}';
+      archive.addFile(ArchiveFile(path, bytes.length, bytes));
+      onFileAdded?.call(path, bytes, doc.mimeType);
     }
   }
 }

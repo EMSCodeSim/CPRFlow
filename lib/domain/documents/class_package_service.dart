@@ -161,7 +161,20 @@ class ClassPackageService {
     }
 
     // 4) Documents folder
-    await _documentStorageService.exportClassDocumentsToArchive(classId: classId, archive: archive);
+    await _documentStorageService.exportClassDocumentsToArchive(
+      classId: classId,
+      archive: archive,
+      onFileAdded: (path, bytes, mimeType) {
+        manifestFiles.add(
+          ClassPackageManifestFile(
+            path: path,
+            size: bytes.length,
+            checksumSha256: _sha256(bytes),
+            mimeType: mimeType,
+          ),
+        );
+      },
+    );
 
     // 5) Manifest
     final manifest = ClassPackageManifest(
@@ -191,7 +204,9 @@ class ClassPackageService {
     final attemptIds = attempts.map((e) => e.id).toList(growable: false);
     final itemResults = attemptIds.isEmpty ? <ChecklistItemResult>[] : await (_db.select(_db.checklistItemResults)..where((t) => t.attemptId.isIn(attemptIds))).get();
     final ccf = await (_db.select(_db.ccfSessions)..where((t) => t.classId.equals(classId))).get();
-    final docs = await (_db.select(_db.classDocuments)..where((t) => t.classId.equals(classId))).get();
+    final docs = await (_db.select(_db.classDocuments)
+          ..where((t) => t.classId.equals(classId) & t.deleted.equals(false)))
+        .get();
 
     return {
       'schemaVersion': 5,
@@ -222,23 +237,53 @@ class ClassPackageService {
     final schemaVersion = (snapshot['schemaVersion'] as num?)?.toInt() ?? 0;
     if (schemaVersion != 5) throw StateError('Unsupported snapshot schema version $schemaVersion');
 
-    // Validate checksums for files listed in manifest that exist in ZIP.
+    // Validate every manifest entry before writing database rows or files.
     for (final f in manifest.files) {
       final entry = archive.files.where((e) => e.name == f.path).firstOrNull;
-      if (entry == null) continue;
-      final bytes = Uint8List.fromList((entry.content as List<int>));
+      if (entry == null || !entry.isFile) {
+        throw StateError('Package is missing required file ${f.path}');
+      }
+      final bytes = Uint8List.fromList(entry.content as List<int>);
+      if (bytes.length != f.size) throw StateError('File size validation failed for ${f.path}');
       final sha = _sha256(bytes);
       if (sha != f.checksumSha256) throw StateError('Checksum validation failed for ${f.path}');
     }
 
+    final existingActive = await (_db.select(_db.classRecords)..where((t) => t.isActive.equals(true))).getSingleOrNull();
+    if (existingActive != null) {
+      throw StateError('Finalize or leave the current active class before importing a class package.');
+    }
+
     final newClassId = _idGenerator.newId(prefix: 'class');
-    await _db.transaction(() async {
-      await _restoreSnapshot(snapshot: snapshot, archive: archive, newClassId: newClassId);
-    });
-    return newClassId;
+    final restoredFiles = <File>[];
+    try {
+      await _db.transaction(() async {
+        await _restoreSnapshot(
+          snapshot: snapshot,
+          archive: archive,
+          newClassId: newClassId,
+          restoredFiles: restoredFiles,
+        );
+      });
+      return newClassId;
+    } catch (_) {
+      for (final file in restoredFiles.reversed) {
+        try {
+          if (await file.exists()) await file.delete();
+        } catch (_) {
+          // A later storage audit can remove any file that could not be cleaned.
+        }
+      }
+      rethrow;
+    }
   }
 
-  Future<void> _restoreSnapshot({required Map<String, Object?> snapshot, required Archive archive, required String newClassId}) async {
+  Future<void> _restoreSnapshot({
+    required Map<String, Object?> snapshot,
+    required Archive archive,
+    required String newClassId,
+    required List<File> restoredFiles,
+  }) async {
     final tables = (snapshot['tables'] as Map?)?.cast<String, Object?>() ?? <String, Object?>{};
     final classMaps = ((tables['classRecords'] as List?) ?? const []).whereType<Map>().toList();
     if (classMaps.isEmpty) throw StateError('Snapshot contains no class record');
@@ -265,7 +310,7 @@ class ClassPackageService {
       ccfRequired: Value(_bool(originalClass['ccfRequired'], fallback: false)),
       defaultSkillsCheckOffDate: Value(_dt(originalClass['defaultSkillsCheckOffDate'])),
       defaultIssueDate: Value(_dt(originalClass['defaultIssueDate'])),
-      isActive: const Value(false),
+      isActive: const Value(true),
       lifecycleStatus: const Value(ClassLifecycleStatus.active),
       finalizationStatus: const Value(ClassFinalizationStatus.notStarted),
       finalizedAt: const Value.absent(),
@@ -391,9 +436,14 @@ class ClassPackageService {
       final checksum = _sha256(bytes);
       final expected = (d['checksum'] as String?) ?? '';
       if (expected.isNotEmpty && checksum != expected) {
-        debugPrint('Import warning: checksum mismatch for $storageFilename');
+        throw StateError('Checksum validation failed for document $storageFilename');
       }
-      await _documentStorageService.writeManagedFile(classId: newClassId, storageFilename: storageFilename, bytes: bytes);
+      final restoredFile = await _documentStorageService.writeManagedFile(
+        classId: newClassId,
+        storageFilename: storageFilename,
+        bytes: bytes,
+      );
+      restoredFiles.add(restoredFile);
 
       final newDocId = _idGenerator.newId(prefix: 'doc');
       final oldStudentId = d['studentId'] as String?;
