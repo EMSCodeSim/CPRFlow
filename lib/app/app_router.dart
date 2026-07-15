@@ -10,6 +10,10 @@ import 'package:cpr_instructor_doc/ui/finalization/finalize_class_wizard_screen.
 import 'package:cpr_instructor_doc/ui/finalization/finalization_success_screen.dart';
 import 'package:cpr_instructor_doc/ui/archive/archive_screen.dart';
 import 'package:cpr_instructor_doc/ui/archive/archived_class_detail_screen.dart';
+import 'package:cpr_instructor_doc/ui/reports/reports_center_screen.dart';
+import 'package:cpr_instructor_doc/ui/reports/pdf_preview_screen.dart';
+import 'package:cpr_instructor_doc/ui/atlas/atlas_export_review_screen.dart';
+import 'package:cpr_instructor_doc/ui/atlas/atlas_template_settings_screen.dart';
 import 'package:cpr_instructor_doc/ui/routes/safe_error_screen.dart';
 import 'package:cpr_instructor_doc/ui/routes/unknown_route_screen.dart';
 import 'package:cpr_instructor_doc/ui/scores/score_entry_screen.dart';
@@ -171,6 +175,80 @@ class AppRouter {
             return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing snapshot', message: 'No snapshot ID provided.', onRetryLocation: AppRoutes.archive));
           }
           return MaterialPage(child: ArchivedClassDetailScreen(snapshotId: snapshotId));
+        },
+      ),
+
+      // Phase 4
+      GoRoute(
+        path: AppRoutes.todayReports,
+        name: 'todayReports',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Reports are unavailable in recovery mode.'));
+          }
+          final classId = state.uri.queryParameters['classId'];
+          if (classId == null || classId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing class', message: 'No class ID provided.', onRetryLocation: AppRoutes.today));
+          }
+          return MaterialPage(child: ReportsCenterScreen.live(classId: classId));
+        },
+      ),
+      GoRoute(
+        path: '/archive/:classId/reports',
+        name: 'archiveReports',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Reports are unavailable in recovery mode.'));
+          }
+          final snapshotId = state.pathParameters['classId'];
+          if (snapshotId == null || snapshotId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing snapshot', message: 'No snapshot ID provided.', onRetryLocation: AppRoutes.archive));
+          }
+          return MaterialPage(child: ReportsCenterScreen.snapshot(snapshotId: snapshotId));
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.pdfPreview,
+        name: 'pdfPreview',
+        pageBuilder: (context, state) => MaterialPage(child: PdfPreviewScreen(request: state.extra)),
+      ),
+
+      GoRoute(
+        path: AppRoutes.atlasTemplateSettings,
+        name: 'atlasTemplateSettings',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Atlas template settings are unavailable in recovery mode.'));
+          }
+          return const MaterialPage(child: AtlasTemplateSettingsScreen());
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.todayAtlas,
+        name: 'todayAtlas',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Atlas export is unavailable in recovery mode.'));
+          }
+          final classId = state.uri.queryParameters['classId'];
+          if (classId == null || classId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing class', message: 'No class ID provided.', onRetryLocation: AppRoutes.today));
+          }
+          return MaterialPage(child: AtlasExportReviewScreen.live(classId: classId));
+        },
+      ),
+      GoRoute(
+        path: '/archive/:classId/atlas',
+        name: 'archiveAtlas',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Atlas export is unavailable in recovery mode.'));
+          }
+          final snapshotId = state.pathParameters['classId'];
+          if (snapshotId == null || snapshotId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing snapshot', message: 'No snapshot ID provided.', onRetryLocation: AppRoutes.archive));
+          }
+          return MaterialPage(child: AtlasExportReviewScreen.snapshot(snapshotId: snapshotId));
         },
       ),
     ],
