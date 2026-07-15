@@ -133,6 +133,90 @@ class ChecklistRepository {
         .getSingleOrNull();
   }
 
+  /// Phase 2 stabilization:
+  ///
+  /// The project is not yet released, and the checklist step IDs were
+  /// finalized alongside the approved artwork.
+  ///
+  /// To preserve any already-saved attempts (including sample/test data), we
+  /// *copy* older item-results forward onto the new stable IDs without deleting
+  /// or modifying the old rows.
+  Future<void> migrateAttemptItemIdsIfNeeded({required String attemptId, required ChecklistType checklistType}) async {
+    final db = _db;
+    if (db == null) return;
+
+    final mappings = switch (checklistType) {
+      ChecklistType.adult => _adultIdMigrations,
+      ChecklistType.infantChild => _infantChildIdMigrations,
+    };
+    if (mappings.isEmpty) return;
+
+    try {
+      await db.transaction(() async {
+        final results = await (db.select(db.checklistItemResults)..where((t) => t.attemptId.equals(attemptId))).get();
+        if (results.isEmpty) return;
+        final byItemId = {for (final r in results) r.itemId: r};
+
+        for (final entry in mappings.entries) {
+          final newId = entry.key;
+          if (byItemId.containsKey(newId)) continue; // already exists
+
+          ChecklistItemResult? bestOld;
+          for (final oldId in entry.value) {
+            final candidate = byItemId[oldId];
+            if (candidate == null) continue;
+            if (bestOld == null) {
+              bestOld = candidate;
+              continue;
+            }
+            if (candidate.updatedAt.isAfter(bestOld.updatedAt)) bestOld = candidate;
+          }
+          if (bestOld == null) continue;
+
+          final now = DateTime.now();
+          final id = _idGenerator.checklistItemResultId(attemptId: attemptId, itemId: newId);
+          await db.into(db.checklistItemResults).insertOnConflictUpdate(
+            ChecklistItemResultsCompanion(
+              id: Value(id),
+              attemptId: Value(attemptId),
+              itemId: Value(newId),
+              result: Value(bestOld.result),
+              notes: Value(bestOld.notes),
+              createdAt: Value(bestOld.createdAt),
+              updatedAt: Value(now),
+            ),
+          );
+        }
+      });
+    } catch (e, st) {
+      debugPrint('migrateAttemptItemIdsIfNeeded failed: $e\n$st');
+      // Non-fatal: the checklist remains usable.
+    }
+  }
+
+  static const Map<String, List<String>> _adultIdMigrations = {
+    // NEW stable ID -> list of historical/temporary IDs (newest wins)
+    'adult_activate_ems_retrieve_aed': ['adult_activate_emergency_response', 'adult_retrieve_aed', 'adult_activate_ems'],
+    'adult_effective_breaths': ['adult_correct_breaths', 'adult_pocket_mask_ventilation'],
+    'adult_apply_aed_pads': ['adult_aed_operation', 'adult_aed_pads', 'adult_retrieve_aed_apply_pads'],
+    'adult_clear_before_analysis': ['adult_aed_operation', 'adult_clear'],
+    'adult_team_communication': ['adult_two_rescuer_teamwork'],
+    // The rest are unchanged IDs.
+  };
+
+  static const Map<String, List<String>> _infantChildIdMigrations = {
+    'ic_activate_ems': ['ic_activate_emergency_response'],
+    'ic_check_breathing': ['ic_check_breathing_brachial_pulse'],
+    'ic_check_brachial_pulse': ['ic_check_breathing_brachial_pulse'],
+    'ic_one_rescuer_compressions': ['ic_infant_compression_placement'],
+    'ic_30_2_ratio': ['ic_30_2_one_rescuer_sequence'],
+    'ic_continue_cpr_30_2': ['ic_30_2_one_rescuer_sequence'],
+    'ic_two_breaths': ['ic_pocket_mask_breaths'],
+    'ic_second_rescuer_arrives': ['ic_two_rescuer_transition'],
+    'ic_two_thumb_encircling': ['ic_two_thumb_technique'],
+    'ic_15_2_sequence': ['ic_15_2_two_rescuer_sequence'],
+  };
+
   Future<void> saveItemResult({required String attemptId, required String itemId, required ChecklistItemResultValue value}) async {
     final db = _db;
     if (db == null) throw StateError('ChecklistRepository is disabled');

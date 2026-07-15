@@ -85,7 +85,7 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
   int _msPerBeat(int bpm) => (60000 / bpm).round();
 
   void _setBpm(int bpm) {
-    final clamped = bpm.clamp(100, 120);
+    final clamped = bpm.clamp(100, 120).toInt();
     if (_bpm == clamped) return;
     setState(() => _bpm = clamped);
     _pulse.duration = Duration(milliseconds: _msPerBeat(_bpm));

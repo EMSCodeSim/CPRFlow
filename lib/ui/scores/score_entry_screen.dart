@@ -22,6 +22,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
   Object? _saveAllError;
 
   final Map<String, TextEditingController> _controllers = {};
+  final Map<String, FocusNode> _focusNodes = {};
   final Map<String, ScoreEditState> _states = {};
 
   @override
@@ -29,12 +30,17 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
     for (final c in _controllers.values) {
       c.dispose();
     }
+    for (final f in _focusNodes.values) {
+      f.dispose();
+    }
     super.dispose();
   }
 
   TextEditingController _controllerFor(StudentRecord s) {
     return _controllers.putIfAbsent(s.id, () => TextEditingController(text: s.writtenTestScore?.toString() ?? ''));
   }
+
+  FocusNode _focusNodeFor(StudentRecord s) => _focusNodes.putIfAbsent(s.id, () => FocusNode(debugLabel: 'score:${s.id}'));
 
   int? _parseScore(String raw) {
     final t = raw.trim();
@@ -261,6 +267,29 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
     }
   }
 
+  Future<void> _retryStudentScoreSave(StudentRecord student) async {
+    final services = AppScope.of(context);
+    final st = _stateFor(student);
+    setState(() => _states[student.id] = st.copyWith(isSaving: true, saveError: null));
+    try {
+      await services.scoreRepository.saveScoreState(studentId: student.id, score: st.draftScore, finalized: st.draftFinalized);
+      if (!mounted) return;
+      setState(() {
+        _states[student.id] = st.copyWith(
+          originalScore: st.draftScore,
+          originalFinalized: st.draftFinalized,
+          isDirty: false,
+          isSaving: false,
+          saveError: null,
+        );
+      });
+    } catch (e, st2) {
+      debugPrint('Retry score save failed: $e\n$st2');
+      if (!mounted) return;
+      setState(() => _states[student.id] = st.copyWith(isSaving: false, saveError: e));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final services = AppScope.of(context);
@@ -313,6 +342,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                         itemBuilder: (context, index) {
                           final s = students[index];
                           final controller = _controllerFor(s);
+                          final focusNode = _focusNodeFor(s);
                           final st = _stateFor(s);
                           final status = _statusLabel(required: required, draftScore: st.draftScore, draftFinalized: st.draftFinalized, threshold: threshold);
                           final statusColor = _statusColor(scheme, status);
@@ -339,10 +369,18 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                                     Expanded(
                                       child: TextField(
                                         controller: controller,
+                                        focusNode: focusNode,
                                         enabled: required,
                                         keyboardType: TextInputType.number,
                                         textInputAction: index == students.length - 1 ? TextInputAction.done : TextInputAction.next,
-                                        onSubmitted: (_) => FocusScope.of(context).unfocus(),
+                                        onSubmitted: (_) {
+                                          if (index == students.length - 1) {
+                                            FocusScope.of(context).unfocus();
+                                            return;
+                                          }
+                                          final next = students[index + 1];
+                                          FocusScope.of(context).requestFocus(_focusNodeFor(next));
+                                        },
                                         decoration: InputDecoration(
                                           labelText: required ? 'Score (0–100)' : 'Score (N/A)',
                                           errorText: required ? st.validationError : null,
@@ -427,7 +465,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                                       Icon(Icons.sync_problem_outlined, color: scheme.error, size: 18),
                                       const SizedBox(width: 8),
                                       const Expanded(child: Text('This score could not be saved.')),
-                                      TextButton(onPressed: () => _clearScoreWithConfirm(s), child: const Text('Retry')),
+                                      TextButton(onPressed: () => _retryStudentScoreSave(s), child: const Text('Retry')),
                                     ],
                                   ),
                                 ],

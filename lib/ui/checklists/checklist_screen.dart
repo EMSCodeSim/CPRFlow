@@ -105,8 +105,14 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
         checklistType: widget.checklistType,
       );
 
+      // Phase 2 stabilization: preserve any previously-saved results after the
+      // checklist step IDs were finalized.
+      await services.checklistRepository.migrateAttemptItemIdsIfNeeded(attemptId: attempt.id, checklistType: widget.checklistType);
+
       final firstMissing = await services.checklistRepository.findFirstMissingRequiredItem(attemptId: attempt.id, definition: _definition);
-      final initialIndex = firstMissing == null ? 0 : _definition.items.indexWhere((i) => i.id == firstMissing).clamp(0, _definition.items.length - 1);
+      final initialIndex = firstMissing == null
+          ? 0
+          : _definition.items.indexWhere((i) => i.id == firstMissing).clamp(0, _definition.items.length - 1).toInt();
       if (!mounted) return;
       _index = initialIndex;
 
@@ -269,7 +275,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
                         onPressed: () {
                           context.pop();
                           final i = _definition.items.indexWhere((it) => it.id == firstMissing);
-                          setState(() => _index = i.clamp(0, _definition.items.length - 1));
+                           setState(() => _index = i.clamp(0, _definition.items.length - 1).toInt());
                           _loadItemState();
                         },
                         icon: const Icon(Icons.flag_outlined),
@@ -364,7 +370,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     final progressText = '${_index + 1} / ${_definition.items.length}';
 
     final size = MediaQuery.sizeOf(context);
-    final imageHeight = (size.height * 0.28).clamp(240.0, 360.0);
+    final imageHeight = (size.height * 0.28).clamp(240.0, 360.0).toDouble();
 
     return KeyboardDismiss(
       child: Column(

@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:cpr_instructor_doc/app/app_routes.dart';
 import 'package:cpr_instructor_doc/app/app_scope.dart';
-import 'package:cpr_instructor_doc/app/app_services.dart';
+import 'package:cpr_instructor_doc/data/coordinators/student_progress_coordinator.dart';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
 import 'package:cpr_instructor_doc/domain/completion/completion_status.dart';
 import 'package:cpr_instructor_doc/domain/completion/student_completion_result.dart';
@@ -20,88 +20,26 @@ class StudentProgressScreen extends StatefulWidget {
   State<StudentProgressScreen> createState() => _StudentProgressScreenState();
 }
 
-class StudentProgressViewModel {
-  const StudentProgressViewModel({required this.clazz, required this.student, required this.completion, required this.error});
-
-  final ClassRecord? clazz;
-  final StudentRecord? student;
-  final StudentCompletionResult? completion;
-  final Object? error;
-}
-
 class _StudentProgressScreenState extends State<StudentProgressScreen> {
-  Stream<StudentProgressViewModel>? _stream;
+  StudentProgressCoordinator? _coordinator;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _stream ??= _buildStream(AppScope.of(context));
+    if (_coordinator != null) return;
+    final services = AppScope.of(context);
+    if (!services.hasClassData) return;
+    _coordinator = StudentProgressCoordinator(
+      db: services.database!,
+      completionService: services.studentCompletionService,
+      studentId: widget.studentId,
+    )..startWatching();
   }
 
   @override
   void dispose() {
+    unawaited(_coordinator?.dispose());
     super.dispose();
-  }
-
-  Stream<StudentProgressViewModel> _buildStream(AppServices services) {
-    if (!services.hasClassData) {
-      return Stream.value(StudentProgressViewModel(clazz: null, student: null, completion: null, error: StateError('Class data disabled')));
-    }
-
-    final controller = StreamController<StudentProgressViewModel>();
-    ClassRecord? currentClass;
-    StudentRecord? currentStudent;
-
-    Future<void> emit() async {
-      try {
-        if (currentClass == null || currentStudent == null) {
-          controller.add(StudentProgressViewModel(clazz: currentClass, student: currentStudent, completion: null, error: null));
-          return;
-        }
-
-        // Ownership check.
-        if (currentStudent!.classId != currentClass!.id) {
-          controller.add(
-            StudentProgressViewModel(
-              clazz: null,
-              student: null,
-              completion: null,
-              error: StateError('Student does not belong to the active class'),
-            ),
-          );
-          return;
-        }
-
-        final completion = await services.studentCompletionService.computeForStudent(clazz: currentClass!, student: currentStudent!);
-        controller.add(StudentProgressViewModel(clazz: currentClass, student: currentStudent, completion: completion, error: null));
-      } catch (e, st) {
-        debugPrint('StudentProgress compute failed: $e\n$st');
-        controller.add(StudentProgressViewModel(clazz: currentClass, student: currentStudent, completion: null, error: e));
-      }
-    }
-
-    final classSub = services.classRepository.watchActiveClass().listen((c) {
-      currentClass = c;
-      unawaited(emit());
-    }, onError: (e, st) {
-      debugPrint('StudentProgress active class watch failed: $e\n$st');
-      controller.add(StudentProgressViewModel(clazz: currentClass, student: currentStudent, completion: null, error: e));
-    });
-
-    final studentSub = services.studentRepository.watchById(widget.studentId).listen((s) {
-      currentStudent = s;
-      unawaited(emit());
-    }, onError: (e, st) {
-      debugPrint('StudentProgress student watch failed: $e\n$st');
-      controller.add(StudentProgressViewModel(clazz: currentClass, student: currentStudent, completion: null, error: e));
-    });
-
-    controller.onCancel = () async {
-      await classSub.cancel();
-      await studentSub.cancel();
-    };
-
-    return controller.stream;
   }
 
   String _overallLabel(OverallStudentResult r) {
@@ -130,26 +68,27 @@ class _StudentProgressScreenState extends State<StudentProgressScreen> {
       appBar: AppBar(title: const Text('Student Progress')),
       body: SafeArea(
         child: StreamBuilder<StudentProgressViewModel>(
-          stream: _stream,
+          stream: _coordinator?.stream,
+          initialData: _coordinator?.latest,
           builder: (context, snap) {
             final vm = snap.data;
             if (snap.hasError) {
               return DatabaseErrorPanel(title: 'Progress could not be loaded', message: 'Please retry.', error: snap.error, onRetry: () => context.go('${AppRoutes.studentProgress}/${Uri.encodeComponent(widget.studentId)}'), onOpenRecovery: null);
             }
             if (vm == null) return const Center(child: CircularProgressIndicator());
-            if (vm.error != null) {
-              if (vm.error is StateError && vm.error.toString().contains('does not belong')) {
+            if (vm.calculationError != null) {
+              if (vm.calculationError is StateError && vm.calculationError.toString().contains('does not belong')) {
                 return SafeErrorScreen(
                   title: 'Student mismatch',
                   message: 'This student does not belong to the active class.',
-                  details: vm.error.toString(),
+                  details: vm.calculationError.toString(),
                   onRetryLocation: AppRoutes.today,
                 );
               }
-              return DatabaseErrorPanel(title: 'Progress could not be calculated', message: 'Please retry.', error: vm.error, onRetry: () => context.go('${AppRoutes.studentProgress}/${Uri.encodeComponent(widget.studentId)}'), onOpenRecovery: null);
+              return DatabaseErrorPanel(title: 'Progress could not be calculated', message: 'Please retry.', error: vm.calculationError, onRetry: () => context.go('${AppRoutes.studentProgress}/${Uri.encodeComponent(widget.studentId)}'), onOpenRecovery: null);
             }
 
-            final clazz = vm.clazz;
+            final clazz = vm.classRecord;
             final student = vm.student;
             final completion = vm.completion;
             if (clazz == null || student == null || completion == null) {

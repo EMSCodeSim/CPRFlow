@@ -56,7 +56,7 @@ class ChecklistImage extends StatelessWidget {
         ),
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final height = (constraints.maxWidth * 0.58).clamp(160, 320).toDouble();
+            final height = (constraints.maxWidth * 0.58).clamp(160.0, 320.0).toDouble();
             return SizedBox(
               height: height,
               child: Image.asset(

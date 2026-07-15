@@ -161,7 +161,7 @@ class CcfTimerController extends ChangeNotifier {
       return;
     }
     var elapsedMs = nowMs - startedAt;
-    if (clampToTarget) elapsedMs = elapsedMs.clamp(0, _totalTarget.inMilliseconds);
+    if (clampToTarget) elapsedMs = elapsedMs.clamp(0, _totalTarget.inMilliseconds).toInt();
 
     var compressionMs = _compressionAccumMs;
     var pauseMs = _pauseAccumMs;
@@ -184,22 +184,22 @@ class CcfTimerController extends ChangeNotifier {
         final overrun = total - elapsedMs;
         final activePhase = state.phase;
         if (activePhase == CcfTimerPhase.running) {
-          compressionMs = (compressionMs - overrun).clamp(0, compressionMs);
+          compressionMs = (compressionMs - overrun).clamp(0, compressionMs).toInt();
         } else if (activePhase == CcfTimerPhase.paused) {
-          pauseMs = (pauseMs - overrun).clamp(0, pauseMs);
+          pauseMs = (pauseMs - overrun).clamp(0, pauseMs).toInt();
         } else {
           // Shouldn't happen (finish() is only called from running/paused),
           // but keep totals consistent.
-          pauseMs = (pauseMs - overrun).clamp(0, pauseMs);
+          pauseMs = (pauseMs - overrun).clamp(0, pauseMs).toInt();
         }
 
         // Rounding/clock jitter guard: ensure compression + pause == elapsed.
         final diff = elapsedMs - (compressionMs + pauseMs);
         if (diff != 0) {
           if (activePhase == CcfTimerPhase.running) {
-            compressionMs = (compressionMs + diff).clamp(0, elapsedMs);
+            compressionMs = (compressionMs + diff).clamp(0, elapsedMs).toInt();
           } else {
-            pauseMs = (pauseMs + diff).clamp(0, elapsedMs);
+            pauseMs = (pauseMs + diff).clamp(0, elapsedMs).toInt();
           }
         }
       }
