@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:cpr_instructor_doc/app/app_scope.dart';
 import 'package:cpr_instructor_doc/app/app_services.dart';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
+import 'package:cpr_instructor_doc/domain/ccf/ccf_snapshot_save_queue.dart';
 import 'package:cpr_instructor_doc/domain/ccf/ccf_timer_controller.dart';
 import 'package:cpr_instructor_doc/domain/ccf/ccf_timer_state.dart';
 import 'package:cpr_instructor_doc/ui/widgets/database_error_panel.dart';
@@ -11,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 enum _ExitDecision { retry, stay, discard }
+enum _FinishedExitDecision { save, stay, discard }
 
 class CcfTimerScreen extends StatefulWidget {
   const CcfTimerScreen({super.key, this.classId, this.studentId});
@@ -38,7 +40,8 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
   CcfTimerPhase? _lastPhase;
   DateTime? _lastSnapshotAt;
   Timer? _snapshotTimer;
-  Future<bool>? _snapshotSaveFuture;
+  CcfSnapshotSaveQueue? _snapshotSaveQueue;
+  int _snapshotRevision = 0;
   Object? _snapshotSaveError;
   bool _snapshotSavePending = false;
   DateTime? _lastSuccessfulSnapshotAt;
@@ -84,6 +87,10 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
     if (_didCaptureServices) return;
     _didCaptureServices = true;
     _services = AppScope.of(context);
+    _snapshotSaveQueue = CcfSnapshotSaveQueue(
+      writer: _writeSnapshotRequest,
+      onStateChanged: _onSnapshotQueueStateChanged,
+    );
     if (_isStudentLinked) {
       _loadingLinkedContext = true;
       unawaited(_loadLinkedContext());
@@ -95,6 +102,7 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
     WidgetsBinding.instance.removeObserver(this);
     _controller.removeListener(_onTimerUpdate);
     _snapshotTimer?.cancel();
+    _snapshotSaveQueue?.dispose();
     _controller.dispose();
     _pulse.dispose();
     super.dispose();
@@ -168,7 +176,7 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
     if (_sessionId != null &&
         _sessionId!.isNotEmpty &&
         phase != CcfTimerPhase.idle) {
-      _hasUnsavedTimerChanges = true;
+      _markTimerDirty();
     }
 
     if (last != phase) {
@@ -234,8 +242,10 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
               passingThreshold: threshold,
             );
       _sessionId = session.id;
+      _snapshotRevision = 0;
+      _snapshotSaveQueue?.reset();
+      _syncSnapshotQueueState();
       _startSnapshotTicker();
-      _hasUnsavedTimerChanges = false;
     } catch (error, stackTrace) {
       debugPrint('Failed to create CCF session: $error\n$stackTrace');
       if (!mounted) return;
@@ -243,68 +253,85 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
     }
   }
 
+  void _markTimerDirty() {
+    _snapshotRevision += 1;
+    _snapshotSaveQueue?.markDirty(_snapshotRevision);
+    _hasUnsavedTimerChanges = true;
+  }
+
+  CcfSnapshotSaveRequest _captureSnapshotRequest({required String reason}) {
+    final id = _sessionId;
+    if (id == null || id.isEmpty) {
+      throw StateError('CCF session has not been created');
+    }
+    return CcfSnapshotSaveRequest(
+      sessionId: id,
+      totalDurationMs: _controller.state.elapsed.inMilliseconds,
+      compressionDurationMs: _controller.state.compression.inMilliseconds,
+      pauseDurationMs: _controller.state.pause.inMilliseconds,
+      ccfPercentage: _controller.state.ccfPercentage,
+      passingThreshold: _controller.state.passingThreshold,
+      revision: _snapshotRevision,
+      reason: reason,
+      capturedAt: DateTime.now(),
+    );
+  }
+
+  void _onSnapshotQueueStateChanged() {
+    if (!mounted) return;
+    setState(_syncSnapshotQueueState);
+  }
+
+  void _syncSnapshotQueueState() {
+    final queue = _snapshotSaveQueue;
+    if (queue == null) return;
+    _snapshotSavePending = queue.isSaving || queue.hasPending;
+    _snapshotSaveError = queue.lastError;
+    _lastSuccessfulSnapshotAt = queue.lastSuccessfulSaveAt;
+    _hasUnsavedTimerChanges = queue.hasUnsavedChanges;
+  }
+
   Future<bool> _saveSnapshotNow({required String reason}) async {
     final id = _sessionId;
-    if (id == null || id.isEmpty || !_services.hasClassData) return true;
-
-    final existing = _snapshotSaveFuture;
-    if (existing != null) return existing;
+    final queue = _snapshotSaveQueue;
+    if (id == null || id.isEmpty || !_services.hasClassData || queue == null) {
+      return true;
+    }
 
     final last = _lastSnapshotAt;
     if (reason == 'throttle' &&
         last != null &&
         DateTime.now().difference(last) < const Duration(seconds: 6)) {
-      return _snapshotSaveError == null;
+      return queue.lastError == null;
     }
 
-    final operation = _performSnapshotSave(id: id, reason: reason);
-    _snapshotSaveFuture = operation;
-    try {
-      return await operation;
-    } finally {
-      if (identical(_snapshotSaveFuture, operation)) {
-        _snapshotSaveFuture = null;
-      }
+    final request = _captureSnapshotRequest(reason: reason);
+    final success = await queue.enqueue(request);
+    _lastSnapshotAt = queue.lastSuccessfulSaveAt ?? _lastSnapshotAt;
+    if (mounted) {
+      setState(_syncSnapshotQueueState);
+    } else {
+      _syncSnapshotQueueState();
     }
+    return success;
   }
 
-  Future<bool> _performSnapshotSave({
-    required String id,
-    required String reason,
-  }) async {
-    if (mounted) {
-      setState(() => _snapshotSavePending = true);
-    }
-    try {
-      await _services.ccfRepository.saveUnfinishedSession(
-        sessionId: id,
-        totalDurationMs: _controller.state.elapsed.inMilliseconds,
-        compressionDurationMs: _controller.state.compression.inMilliseconds,
-        pauseDurationMs: _controller.state.pause.inMilliseconds,
-        ccfPercentage: _controller.state.ccfPercentage,
-        passingThreshold: _controller.state.passingThreshold,
-      );
-      _lastSnapshotAt = DateTime.now();
-      _lastSuccessfulSnapshotAt = _lastSnapshotAt;
-      _snapshotSaveError = null;
-      _hasUnsavedTimerChanges = false;
-      return true;
-    } catch (error, stackTrace) {
-      debugPrint('Failed to save CCF snapshot ($reason): $error\n$stackTrace');
-      _snapshotSaveError = error;
-      _hasUnsavedTimerChanges = true;
-      return false;
-    } finally {
-      _snapshotSavePending = false;
-      if (mounted) setState(() {});
-    }
+  Future<void> _writeSnapshotRequest(CcfSnapshotSaveRequest request) async {
+    await _services.ccfRepository.saveUnfinishedSession(
+      sessionId: request.sessionId,
+      totalDurationMs: request.totalDurationMs,
+      compressionDurationMs: request.compressionDurationMs,
+      pauseDurationMs: request.pauseDurationMs,
+      ccfPercentage: request.ccfPercentage,
+      passingThreshold: request.passingThreshold,
+    );
   }
 
   Future<void> _start() async {
     await _ensureSessionCreated();
     if (_dbError != null || _linkedContextError != null) return;
     _controller.start();
-    _hasUnsavedTimerChanges = true;
+    _markTimerDirty();
     unawaited(_saveSnapshotNow(reason: 'start'));
   }
 
@@ -355,8 +382,8 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
 
     if (!await _discardUnfinalizedSession()) return;
     _sessionId = null;
-    _snapshotSaveError = null;
-    _hasUnsavedTimerChanges = false;
+    _snapshotSaveQueue?.reset();
+    _syncSnapshotQueueState();
     _controller.reset();
     if (mounted) setState(() {});
   }
@@ -393,6 +420,8 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
     final id = _sessionId;
     if (id == null || id.isEmpty) return false;
     try {
+      _snapshotTimer?.cancel();
+      await _snapshotSaveQueue?.waitForInFlight();
       await _services.ccfRepository.finalizeSession(
         sessionId: id,
         endedAt: DateTime.now(),
@@ -402,9 +431,8 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
         ccfPercentage: _controller.state.ccfPercentage,
         passingThreshold: _controller.state.passingThreshold,
       );
-      _snapshotSaveError = null;
-      _snapshotSavePending = false;
-      _hasUnsavedTimerChanges = false;
+      _snapshotSaveQueue?.markSavedThrough(_snapshotRevision);
+      _syncSnapshotQueueState();
       return true;
     } catch (error, stackTrace) {
       debugPrint('Failed to finalize CCF session: $error\n$stackTrace');
@@ -471,9 +499,132 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
     context.pop();
   }
 
+  Future<bool> _handleFinishedExit() async {
+    if (!_services.hasClassData || _sessionId == null || _sessionId!.isEmpty) {
+      final close = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Close unsaved result?'),
+          content: const Text(
+            'Class data is unavailable, so this finished result cannot be saved.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => dialogContext.pop(false),
+              child: const Text('Stay on Timer'),
+            ),
+            FilledButton(
+              onPressed: () => dialogContext.pop(true),
+              child: const Text('Close Without Saving'),
+            ),
+          ],
+        ),
+      );
+      return close == true;
+    }
+
+    final decision = await showModalBottomSheet<_FinishedExitDecision>(
+      context: context,
+      isDismissible: false,
+      enableDrag: false,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Save finished CCF result?',
+                style: Theme.of(sheetContext)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'This test reached its finish point. Save the final result, stay on the timer, or intentionally discard it.',
+              ),
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => sheetContext.pop(_FinishedExitDecision.save),
+                  icon: const Icon(Icons.save_outlined),
+                  label: Text(
+                    _isStudentLinked
+                        ? 'Save Student Result'
+                        : 'Save Standalone Result',
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () => sheetContext.pop(_FinishedExitDecision.stay),
+                  child: const Text('Stay on Timer'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: TextButton.icon(
+                  onPressed: () => sheetContext.pop(_FinishedExitDecision.discard),
+                  icon: const Icon(Icons.delete_outline),
+                  label: const Text('Discard Result'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    switch (decision) {
+      case _FinishedExitDecision.save:
+        return _finalizeAndSave();
+      case _FinishedExitDecision.discard:
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Discard finished result?'),
+            content: const Text(
+              'This removes only the current unfinalized result. Previously finalized CCF results are not affected.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => dialogContext.pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => dialogContext.pop(true),
+                child: const Text('Discard'),
+              ),
+            ],
+          ),
+        );
+        if (confirm != true) return false;
+        final discarded = await _discardUnfinalizedSession();
+        if (discarded) {
+          _sessionId = null;
+          _snapshotSaveQueue?.reset();
+          _syncSnapshotQueueState();
+        }
+        return discarded;
+      case _FinishedExitDecision.stay:
+      case null:
+        return false;
+    }
+  }
+
   Future<bool> _handleExitRequested() async {
     if (_allowPop) return true;
     final phase = _controller.state.phase;
+    if (phase == CcfTimerPhase.finished) {
+      return _handleFinishedExit();
+    }
     final needsSave = _hasUnsavedTimerChanges ||
         phase == CcfTimerPhase.running ||
         phase == CcfTimerPhase.paused ||
@@ -563,7 +714,8 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
           );
           if (confirm == true && await _discardUnfinalizedSession()) {
             _sessionId = null;
-            _hasUnsavedTimerChanges = false;
+            _snapshotSaveQueue?.reset();
+            _syncSnapshotQueueState();
             return true;
           }
           continue;
@@ -671,7 +823,7 @@ class _CcfTimerScreenState extends State<CcfTimerScreen>
                   threshold: state.passingThreshold,
                   onChanged: (value) {
                     _controller.setPassingThreshold(value);
-                    _hasUnsavedTimerChanges = true;
+                    _markTimerDirty();
                   },
                 ),
                 const SizedBox(height: 14),
