@@ -109,6 +109,24 @@ class ChecklistRepository {
         .watch();
   }
 
+  Future<List<ChecklistAttempt>> getAttemptsForClass(String classId) async {
+    final db = _db;
+    if (db == null) return const [];
+    return (db.select(db.checklistAttempts)..where((t) => t.classId.equals(classId))..orderBy([(t) => OrderingTerm(expression: t.updatedAt, mode: OrderingMode.desc)])).get();
+  }
+
+  /// Returns all item results grouped by attemptId.
+  Future<Map<String, List<ChecklistItemResult>>> getItemResultsForAttempts({required List<String> attemptIds}) async {
+    final db = _db;
+    if (db == null || attemptIds.isEmpty) return const {};
+    final results = await (db.select(db.checklistItemResults)..where((t) => t.attemptId.isIn(attemptIds))).get();
+    final map = <String, List<ChecklistItemResult>>{};
+    for (final r in results) {
+      (map[r.attemptId] ??= <ChecklistItemResult>[]).add(r);
+    }
+    return map;
+  }
+
   Stream<List<ChecklistItemResult>> watchItemResults(String attemptId) {
     final db = _db;
     if (db == null) return const Stream.empty();

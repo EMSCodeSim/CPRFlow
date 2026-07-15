@@ -17,4 +17,12 @@ class AppRoutes {
   static const archive = '/archive';
   static const archivedClassDetail = '/archive/detail';
   static const finalizationSuccess = '/today/finalize/success';
+
+  // Phase 4
+  static const todayReports = '/today/reports';
+  static const archiveReports = '/archive'; // canonical: /archive/:classId/reports
+  static const todayAtlas = '/today/atlas';
+  static const archiveAtlas = '/archive'; // canonical: /archive/:classId/atlas
+  static const atlasTemplateSettings = '/atlas/templates';
+  static const pdfPreview = '/reports/pdf-preview';
 }

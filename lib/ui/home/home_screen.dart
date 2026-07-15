@@ -423,6 +423,24 @@ class _ActiveClassCard extends StatelessWidget {
             active.courseType == CourseType.blsProvider ? 'BLS Provider' : 'Course',
             style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: scheme.onSurface.withValues(alpha: 0.8)),
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => context.go(AppRoutes.today),
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text("Open Today's Class"),
+                ),
+              ),
+              const SizedBox(width: 10),
+              OutlinedButton.icon(
+                onPressed: () => context.push('${AppRoutes.todayReports}?classId=${active.id}'),
+                icon: const Icon(Icons.description_outlined),
+                label: const Text('Reports'),
+              ),
+            ],
+          ),
         ],
       ),
     );

@@ -1,9 +1,10 @@
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:cpr_instructor_doc/domain/atlas/atlas_template.dart';
 import 'package:cpr_instructor_doc/domain/atlas/atlas_template_service.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 
 class AtlasTemplateSettingsScreen extends StatefulWidget {
   const AtlasTemplateSettingsScreen({super.key});
@@ -29,13 +30,27 @@ class _AtlasTemplateSettingsScreenState extends State<AtlasTemplateSettingsScree
   }
 
   Future<void> _import() async {
-    final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: const ['csv']);
-    final path = result?.files.single.path;
-    if (path == null) return;
-    final csv = await File(path).readAsString();
-    final imported = _service.templateFromCsv(csv: csv, name: result!.files.single.name);
-    await _service.save(imported);
-    if (mounted) setState(() => _template = imported);
+    try {
+      final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: const ['csv'], withData: true);
+      if (result == null || result.files.isEmpty) return;
+
+      final file = result.files.single;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Unable to read file contents.')));
+        return;
+      }
+
+      final csv = utf8.decode(bytes, allowMalformed: true);
+      final imported = _service.templateFromCsv(csv: csv, name: file.name);
+      await _service.save(imported);
+      if (mounted) setState(() => _template = imported);
+    } catch (e) {
+      debugPrint('AtlasTemplateSettingsScreen: import failed: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Import failed. Please try again.')));
+    }
   }
 
   Future<void> _updateColumn(int index, AtlasField field) async {

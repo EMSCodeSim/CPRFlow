@@ -53,6 +53,7 @@ class StartupCoordinator extends ChangeNotifier {
       services = AppServices(database: db);
       services!.wireCompletionService();
       services!.wirePhase3Services();
+      services!.wirePhase4Services();
       state = const StartupState.ready();
       _log('phase=ready');
       notifyListeners();

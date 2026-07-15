@@ -89,6 +89,23 @@ class CcfRepository {
         .getSingleOrNull();
   }
 
+  /// Returns the latest (by startedAt) session for each student in the class.
+  Future<Map<String, CcfSession>> getLatestSessionByStudent({required String classId}) async {
+    final db = _db;
+    if (db == null) return const {};
+    final sessions = await (db.select(db.ccfSessions)
+          ..where((t) => t.classId.equals(classId) & t.studentId.isNotNull())
+          ..orderBy([(t) => OrderingTerm(expression: t.startedAt, mode: OrderingMode.desc)]))
+        .get();
+    final map = <String, CcfSession>{};
+    for (final s in sessions) {
+      final sid = s.studentId;
+      if (sid == null) continue;
+      map.putIfAbsent(sid, () => s);
+    }
+    return map;
+  }
+
   Future<void> saveUnfinishedSession({
     required String sessionId,
     required int totalDurationMs,

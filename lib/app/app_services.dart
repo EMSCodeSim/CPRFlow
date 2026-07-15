@@ -7,6 +7,7 @@ import 'package:cpr_instructor_doc/data/repositories/student_repository.dart';
 import 'package:cpr_instructor_doc/domain/completion/student_completion_service.dart';
 import 'package:cpr_instructor_doc/domain/finalization/class_finalization_service.dart';
 import 'package:cpr_instructor_doc/domain/archive/class_working_copy_service.dart';
+import 'package:cpr_instructor_doc/domain/reports/class_report_service.dart';
 
 /// Holds initialized app-wide dependencies.
 ///
@@ -20,7 +21,8 @@ class AppServices {
         scoreRepository = ScoreRepository(database),
         studentCompletionService = StudentCompletionService.unwired(),
         classFinalizationService = null,
-        classWorkingCopyService = database == null ? null : ClassWorkingCopyService(database);
+        classWorkingCopyService = database == null ? null : ClassWorkingCopyService(database),
+        classReportService = null;
 
   /// Must be called after the default constructor so [studentCompletionService]
   /// can reference the same repository instances.
@@ -28,6 +30,19 @@ class AppServices {
         checklistRepository: checklistRepository,
         ccfRepository: ccfRepository,
       );
+
+  void wirePhase4Services() {
+    final db = database;
+    if (db == null) return;
+    classReportService = ClassReportService(
+      db: db,
+      classRepository: classRepository,
+      studentRepository: studentRepository,
+      checklistRepository: checklistRepository,
+      ccfRepository: ccfRepository,
+      completionService: studentCompletionService,
+    );
+  }
 
   void wirePhase3Services() {
     final db = database;
@@ -44,6 +59,7 @@ class AppServices {
     required this.ccfRepository,
     required this.scoreRepository,
     required this.studentCompletionService,
+    this.classReportService,
     this.classFinalizationService,
     this.classWorkingCopyService,
   });
@@ -59,6 +75,8 @@ class AppServices {
   final CcfRepository ccfRepository;
   final ScoreRepository scoreRepository;
   final StudentCompletionService studentCompletionService;
+
+  ClassReportService? classReportService;
 
   ClassFinalizationService? classFinalizationService;
   final ClassWorkingCopyService? classWorkingCopyService;

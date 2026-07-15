@@ -84,6 +84,15 @@ class FinalizationSuccessScreen extends StatelessWidget {
                   SizedBox(
                     width: double.infinity,
                     child: FilledButton.icon(
+                      onPressed: () => context.go('/archive/$snapshotId/reports'),
+                      icon: const Icon(Icons.description_outlined),
+                      label: const Text('View Reports'),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
                       onPressed: () => context.go('${AppRoutes.archivedClassDetail}/$snapshotId'),
                       icon: const Icon(Icons.archive),
                       label: const Text('View Archived Class'),

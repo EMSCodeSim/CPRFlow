@@ -82,6 +82,16 @@ class _TodaysClassScreenState extends State<TodaysClassScreen> {
         title: const Text("Today's Class"),
         actions: [
           IconButton(
+            tooltip: 'Reports',
+            onPressed: () async {
+              final active = await services.classRepository.getActiveClass();
+              final id = active?.id;
+              if (!context.mounted || id == null) return;
+              context.push('${AppRoutes.todayReports}?classId=$id');
+            },
+            icon: const Icon(Icons.description_outlined),
+          ),
+          IconButton(
             tooltip: 'Finalize class',
             onPressed: () => context.push(AppRoutes.finalizeClass),
             icon: const Icon(Icons.check_circle_outline),

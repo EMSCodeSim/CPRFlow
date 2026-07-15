@@ -51,7 +51,16 @@ class ArchivedClassDetailScreen extends StatelessWidget {
         }
 
         return Scaffold(
-          appBar: AppBar(title: const Text('Finalized Snapshot — Read Only')),
+          appBar: AppBar(
+            title: const Text('Finalized Snapshot — Read Only'),
+            actions: [
+              IconButton(
+                tooltip: 'Reports',
+                onPressed: () => context.push('/archive/$snapshotId/reports'),
+                icon: const Icon(Icons.description_outlined),
+              ),
+            ],
+          ),
           body: SafeArea(
             child: snapshot == null
                 ? const SafeErrorScreen(title: 'Archive record unreadable', message: 'Snapshot parsing failed. The record remains read-only.', onRetryLocation: AppRoutes.archive)

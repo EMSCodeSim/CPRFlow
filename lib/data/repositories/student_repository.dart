@@ -15,6 +15,12 @@ class StudentRepository {
     return (db.select(db.studentRecords)..where((t) => t.classId.equals(classId))..orderBy([(t) => OrderingTerm(expression: t.displayName)])).watch();
   }
 
+  Future<List<StudentRecord>> getForClass(String classId) async {
+    final db = _db;
+    if (db == null) return const [];
+    return (db.select(db.studentRecords)..where((t) => t.classId.equals(classId))..orderBy([(t) => OrderingTerm(expression: t.displayName)])).get();
+  }
+
   Future<StudentRecord?> getById(String id) async {
     final db = _db;
     if (db == null) return null;
