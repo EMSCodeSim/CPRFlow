@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
 import 'package:cpr_instructor_doc/domain/completion/completion_status.dart';
 import 'package:cpr_instructor_doc/domain/completion/student_completion_service.dart';
+import 'package:cpr_instructor_doc/domain/checklists/checklist_registry.dart';
 import 'package:cpr_instructor_doc/domain/finalization/final_snapshot_models.dart';
 import 'package:cpr_instructor_doc/domain/finalization/final_student_result.dart';
 import 'package:cpr_instructor_doc/domain/finalization/finalization_audit_actions.dart';
 import 'package:cpr_instructor_doc/domain/finalization/snapshot_checksum.dart';
+import 'package:cpr_instructor_doc/domain/finalization/snapshot_row_codec.dart';
 import 'package:cpr_instructor_doc/utils/id_generator.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
@@ -149,14 +151,44 @@ class ClassFinalizationService {
       final nextNumber = (existing.map((e) => e.snapshotNumber).fold<int>(0, (p, n) => n > p ? n : p)) + 1;
       final snapshotId = ids.newId(prefix: 'snap');
 
+      final lifecycle = request.allowIncompleteStudents && incompleteCount > 0
+          ? ClassLifecycleStatus.completedIncomplete
+          : ClassLifecycleStatus.completed;
+
       final snapshot = _buildSnapshot(
         clazz: clazz,
+        lifecycle: lifecycle,
         snapshotNumber: nextNumber,
         finalizedAt: now,
         results: finalResults,
         students: students,
       );
-      final canonical = snapshot.canonicalJson();
+
+      final checklistData = _buildChecklistSnapshotData(
+        students: students,
+        attempts: attempts,
+        resultsByAttempt: resultsByAttempt,
+      );
+      final ccfData = _buildCcfSnapshotData(students: students, sessions: ccfSessions);
+      final scoreData = _buildScoreSnapshotData(clazz: clazz, students: students);
+      final completionData = {
+        for (final entry in finalResults.entries)
+          entry.key: {
+            'automatic': entry.value.automatic.overallResult.name,
+            'override': entry.value.overrideType.name,
+            'final': entry.value.finalResult.name,
+            'missingRequirements': entry.value.missingRequirements,
+            'failureReasons': entry.value.failureReasons,
+            'warnings': entry.value.warnings,
+          },
+      };
+      final canonical = SnapshotRowCodec.canonicalFromSegments(
+        snapshot: snapshot,
+        checklistData: checklistData,
+        ccfData: ccfData,
+        scoreData: scoreData,
+        completionResults: completionData,
+      );
       final checksum = SnapshotChecksum.sha256HexFromUtf8(canonical);
 
       final snapshotRow = FinalClassSnapshotsCompanion(
@@ -170,17 +202,15 @@ class ClassFinalizationService {
         finalizedAt: Value(now),
         classDataJson: Value(jsonEncode(snapshot.classData.toJson())),
         studentDataJson: Value(jsonEncode(snapshot.students.map((s) => s.toJson()).toList(growable: false))),
-        checklistDataJson: const Value('{}'),
-        ccfDataJson: const Value('{}'),
-        scoreDataJson: const Value('{}'),
-        completionResultsJson: Value(jsonEncode({for (final e in finalResults.entries) e.key: e.value.finalResult.name})),
+        checklistDataJson: Value(jsonEncode(checklistData)),
+        ccfDataJson: Value(jsonEncode(ccfData)),
+        scoreDataJson: Value(jsonEncode(scoreData)),
+        completionResultsJson: Value(jsonEncode(completionData)),
         totalsJson: Value(jsonEncode(snapshot.totals.toJson())),
         checksum: Value(checksum),
       );
 
       await _db.into(_db.finalClassSnapshots).insert(snapshotRow);
-
-      final lifecycle = request.allowIncompleteStudents && incompleteCount > 0 ? ClassLifecycleStatus.completedIncomplete : ClassLifecycleStatus.completed;
 
       // Update the class (still within same transaction).
       await (_db.update(_db.classRecords)..where((t) => t.id.equals(clazz.id))).write(
@@ -251,6 +281,7 @@ class ClassFinalizationService {
 
   FinalClassSnapshotV1 _buildSnapshot({
     required ClassRecord clazz,
+    required ClassLifecycleStatus lifecycle,
     required int snapshotNumber,
     required DateTime finalizedAt,
     required Map<String, FinalStudentResult> results,
@@ -282,7 +313,7 @@ class ClassFinalizationService {
       ccfRequired: clazz.ccfRequired,
       defaultSkillsCheckOffDate: fmt(clazz.defaultSkillsCheckOffDate),
       defaultIssueDate: fmt(clazz.defaultIssueDate),
-      lifecycleStatus: lifecycleLabel(clazz.lifecycleStatus),
+      lifecycleStatus: lifecycleLabel(lifecycle),
       snapshotNumber: snapshotNumber,
     );
 
@@ -334,4 +365,85 @@ class ClassFinalizationService {
       finalizedAt: finalizedAt,
     );
   }
+  List<Map<String, Object?>> _buildChecklistSnapshotData({
+    required List<StudentRecord> students,
+    required List<ChecklistAttempt> attempts,
+    required Map<String, List<ChecklistItemResult>> resultsByAttempt,
+  }) {
+    final studentIds = students.map((e) => e.id).toSet();
+    final rows = <Map<String, Object?>>[];
+    for (final attempt in attempts.where((a) => studentIds.contains(a.studentId))) {
+      final definition = ChecklistRegistry.definitionFor(attempt.checklistType);
+      final byItem = {for (final r in resultsByAttempt[attempt.id] ?? const <ChecklistItemResult>[]) r.itemId: r};
+      rows.add({
+        'attemptId': attempt.id,
+        'classId': attempt.classId,
+        'studentId': attempt.studentId,
+        'checklistType': attempt.checklistType.name,
+        'status': attempt.status.name,
+        'finalized': attempt.finalized,
+        'finalizedAt': attempt.finalizedAt?.toIso8601String(),
+        'updatedAt': attempt.updatedAt.toIso8601String(),
+        'items': [
+          for (final item in [...definition.items]..sort((a, b) => a.order.compareTo(b.order)))
+            {
+              'itemId': item.id,
+              'title': item.title,
+              'instructorPrompt': item.instructorPrompt,
+              'required': item.required,
+              'order': item.order,
+              'section': item.section,
+              'imageAssetPath': item.imageAssetPath,
+              'result': byItem[item.id]?.result.name ?? ChecklistItemResultValue.notEvaluated.name,
+              'notes': byItem[item.id]?.notes,
+            },
+        ],
+      });
+    }
+    rows.sort((a, b) {
+      final sa = '${a['studentId']}|${a['checklistType']}|${a['attemptId']}';
+      final sb = '${b['studentId']}|${b['checklistType']}|${b['attemptId']}';
+      return sa.compareTo(sb);
+    });
+    return rows;
+  }
+
+  List<Map<String, Object?>> _buildCcfSnapshotData({
+    required List<StudentRecord> students,
+    required List<CcfSession> sessions,
+  }) {
+    final studentIds = students.map((e) => e.id).toSet();
+    final rows = sessions.where((s) => s.studentId != null && studentIds.contains(s.studentId)).map((s) => {
+      'sessionId': s.id,
+      'classId': s.classId,
+      'studentId': s.studentId,
+      'startedAt': s.startedAt.toIso8601String(),
+      'endedAt': s.endedAt?.toIso8601String(),
+      'totalDurationMilliseconds': s.totalDurationMilliseconds,
+      'compressionDurationMilliseconds': s.compressionDurationMilliseconds,
+      'pauseDurationMilliseconds': s.pauseDurationMilliseconds,
+      'ccfPercentage': s.ccfPercentage,
+      'passingThreshold': s.passingThreshold,
+      'finalized': s.finalized,
+      'result': s.result.name,
+      'updatedAt': s.updatedAt.toIso8601String(),
+    }).toList(growable: false);
+    rows.sort((a, b) => '${a['studentId']}|${a['startedAt']}|${a['sessionId']}'.compareTo('${b['studentId']}|${b['startedAt']}|${b['sessionId']}'));
+    return rows;
+  }
+
+  List<Map<String, Object?>> _buildScoreSnapshotData({
+    required ClassRecord clazz,
+    required List<StudentRecord> students,
+  }) => [
+    for (final s in [...students]..sort((a, b) => a.id.compareTo(b.id)))
+      {
+        'studentId': s.id,
+        'writtenTestRequired': clazz.writtenTestRequired,
+        'passingScore': clazz.passingScore,
+        'score': s.writtenTestScore,
+        'finalized': s.writtenTestingFinalized,
+      },
+  ];
+
 }
