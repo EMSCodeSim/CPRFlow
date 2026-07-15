@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:cpr_instructor_doc/app/app_scope.dart';
+import 'package:cpr_instructor_doc/domain/documents/document_storage_service.dart';
 import 'package:cpr_instructor_doc/ui/documents/document_preview_request.dart';
 import 'package:cpr_instructor_doc/ui/documents/image_viewer_screen.dart';
 import 'package:cpr_instructor_doc/ui/documents/pdf_viewer_screen.dart';
@@ -20,16 +21,20 @@ class _DocumentPreviewScreenState extends State<DocumentPreviewScreen> {
   File? _file;
   Object? _error;
   bool _loading = true;
+  bool _didStartLoad = false;
 
   @override
-  void initState() {
-    super.initState();
-    _load();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didStartLoad) return;
+    _didStartLoad = true;
+    final storage = AppScope.of(context).documentStorageService;
+    _load(storage);
   }
 
-  Future<void> _load() async {
-    final storage = AppScope.of(context).documentStorageService;
+  Future<void> _load(DocumentStorageService? storage) async {
     if (storage == null) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = StateError('Document storage disabled');
@@ -38,12 +43,14 @@ class _DocumentPreviewScreenState extends State<DocumentPreviewScreen> {
     }
     try {
       final f = await storage.openFile(widget.request.document);
+      if (!mounted) return;
       setState(() {
         _file = f;
         _loading = false;
       });
     } catch (e, st) {
       debugPrint('Failed to load document: $e\n$st');
+      if (!mounted) return;
       setState(() {
         _loading = false;
         _error = e;

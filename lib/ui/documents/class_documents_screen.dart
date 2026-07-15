@@ -37,6 +37,13 @@ class ClassDocumentsScreen extends StatefulWidget {
 class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
   String _search = '';
   bool _busy = false;
+  Future<String?>? _classIdFuture;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _classIdFuture ??= _resolveClassId();
+  }
 
   Future<String?> _resolveClassId() async {
     final id = widget.classId;
@@ -79,7 +86,7 @@ class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
         bytes = await x.readAsBytes();
         filename = x.name;
       } else {
-        final result = await FilePicker.pickFiles(withData: true, type: FileType.custom, allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg', 'heic', 'txt']);
+        final result = await FilePicker.platform.pickFiles(withData: true, type: FileType.custom, allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg', 'heic', 'txt']);
         if (result == null || result.files.isEmpty) return;
         final f = result.files.single;
         if (f.bytes == null) throw StateError('Selected file could not be read');
@@ -87,6 +94,7 @@ class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
         filename = f.name;
       }
 
+      if (!mounted) return;
       final services = AppScope.of(context);
       final storage = services.documentStorageService;
       if (storage == null) throw StateError('Document storage disabled');
@@ -109,6 +117,7 @@ class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
 
   Future<void> _shareClassPackage(String classId) async {
     try {
+      if (!mounted) return;
       setState(() => _busy = true);
       final services = AppScope.of(context);
       final db = services.database;
@@ -129,11 +138,12 @@ class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
   Future<void> _importClassPackage() async {
     if (widget.readOnly) return;
     try {
-      final picked = await FilePicker.pickFiles(withData: true, type: FileType.custom, allowedExtensions: const ['zip']);
+      final picked = await FilePicker.platform.pickFiles(withData: true, type: FileType.custom, allowedExtensions: const ['zip']);
       if (picked == null || picked.files.isEmpty) return;
       final bytes = picked.files.single.bytes;
       if (bytes == null) throw StateError('Could not read ZIP');
 
+      if (!mounted) return;
       setState(() => _busy = true);
       final services = AppScope.of(context);
       final db = services.database;
@@ -159,7 +169,7 @@ class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
     final repo = services.documentRepository;
 
     return FutureBuilder<String?>(
-      future: _resolveClassId(),
+      future: _classIdFuture,
       builder: (context, snap) {
         final classId = snap.data;
         if (!snap.hasData) return const Scaffold(body: Center(child: CircularProgressIndicator()));
@@ -176,7 +186,8 @@ class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
             title: Text(widget.studentId != null ? 'Student Documents' : 'Class Documents'),
             actions: [
               if (!widget.readOnly) IconButton(tooltip: 'Import package', onPressed: _busy ? null : _importClassPackage, icon: const Icon(Icons.archive)),
-              if (widget.studentId == null) IconButton(tooltip: 'Export package', onPressed: _busy ? null : () => _shareClassPackage(classId), icon: const Icon(Icons.upload)),
+              if (widget.studentId == null && !widget.readOnly)
+                IconButton(tooltip: 'Export package', onPressed: _busy ? null : () => _shareClassPackage(classId), icon: const Icon(Icons.upload)),
             ],
           ),
           floatingActionButton: widget.readOnly
@@ -199,6 +210,22 @@ class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
                 child: StreamBuilder<List<ClassDocument>>(
                   stream: stream,
                   builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text('Documents could not be loaded.'),
+                              const SizedBox(height: 12),
+                              FilledButton(onPressed: () => setState(() {}), child: const Text('Retry')),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
+                    if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
                     final docs = (snapshot.data ?? const []).where((d) {
                       if (_search.trim().isEmpty) return true;
                       final q = _search.trim().toLowerCase();
@@ -273,7 +300,44 @@ class _DocumentTile extends StatelessWidget {
   }
 
   Future<void> _open(BuildContext context) async {
-    context.push('/documents/preview', extra: DocumentPreviewRequest(document: doc));
+    await context.push('/documents/preview', extra: DocumentPreviewRequest(document: doc));
+  }
+
+  Future<void> _share(BuildContext context) async {
+    final storage = AppScope.of(context).documentStorageService;
+    if (storage == null) return;
+    try {
+      final file = await storage.openFile(doc);
+      await Share.shareXFiles([XFile(file.path)], text: doc.displayName);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Share failed: $e')));
+      }
+    }
+  }
+
+  Future<void> _edit(BuildContext context) async {
+    if (readOnly) return;
+    final result = await showDialog<_DocumentEditResult>(
+      context: context,
+      builder: (context) => _DocumentEditDialog(document: doc),
+    );
+    if (result == null || !context.mounted) return;
+    final storage = AppScope.of(context).documentStorageService;
+    if (storage == null) return;
+    try {
+      await storage.updateDetails(
+        doc: doc,
+        displayName: result.displayName,
+        documentType: result.documentType,
+        studentId: doc.studentId,
+        notes: result.notes,
+      );
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Update failed: $e')));
+      }
+    }
   }
 
   Future<void> _delete(BuildContext context) async {
@@ -293,7 +357,13 @@ class _DocumentTile extends StatelessWidget {
       ),
     );
     if (confirmed != true) return;
-    await storage.delete(doc: doc);
+    try {
+      await storage.delete(doc: doc);
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Delete failed: $e')));
+      }
+    }
   }
 
   @override
@@ -301,23 +371,116 @@ class _DocumentTile extends StatelessWidget {
     return ListTile(
       leading: Icon(_icon),
       title: Text(doc.displayName),
-      subtitle: Text(doc.originalFilename, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: readOnly
-          ? const Icon(Icons.chevron_right)
-          : PopupMenuButton<String>(
-              onSelected: (v) {
-                if (v == 'open') _open(context);
-                if (v == 'delete') _delete(context);
-              },
-              itemBuilder: (context) => [
-                const PopupMenuItem(value: 'open', child: Text('Preview')),
-                const PopupMenuItem(value: 'delete', child: Text('Delete')),
-              ],
-            ),
+      subtitle: Text(
+        [doc.originalFilename, if (doc.notes != null && doc.notes!.trim().isNotEmpty) doc.notes!.trim()].join(' • '),
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+      ),
+      trailing: PopupMenuButton<String>(
+        onSelected: (v) {
+          if (v == 'open') _open(context);
+          if (v == 'share') _share(context);
+          if (v == 'edit') _edit(context);
+          if (v == 'delete') _delete(context);
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem(value: 'open', child: Text('Preview')),
+          const PopupMenuItem(value: 'share', child: Text('Share')),
+          if (!readOnly) const PopupMenuItem(value: 'edit', child: Text('Rename / Details')),
+          if (!readOnly) const PopupMenuItem(value: 'delete', child: Text('Delete')),
+        ],
+      ),
       onTap: () => _open(context),
     );
   }
 }
+
+class _DocumentEditResult {
+  const _DocumentEditResult({required this.displayName, required this.documentType, required this.notes});
+  final String displayName;
+  final DocumentType documentType;
+  final String? notes;
+}
+
+class _DocumentEditDialog extends StatefulWidget {
+  const _DocumentEditDialog({required this.document});
+  final ClassDocument document;
+
+  @override
+  State<_DocumentEditDialog> createState() => _DocumentEditDialogState();
+}
+
+class _DocumentEditDialogState extends State<_DocumentEditDialog> {
+  late final TextEditingController _name;
+  late final TextEditingController _notes;
+  late DocumentType _type;
+
+  @override
+  void initState() {
+    super.initState();
+    _name = TextEditingController(text: widget.document.displayName);
+    _notes = TextEditingController(text: widget.document.notes ?? '');
+    _type = widget.document.documentType;
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Document details'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: _name, decoration: const InputDecoration(labelText: 'Display name')),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<DocumentType>(
+              value: _type,
+              decoration: const InputDecoration(labelText: 'Category'),
+              items: DocumentType.values
+                  .map((type) => DropdownMenuItem(value: type, child: Text(_documentTypeLabel(type))))
+                  .toList(growable: false),
+              onChanged: (value) => setState(() => _type = value ?? _type),
+            ),
+            const SizedBox(height: 12),
+            TextField(controller: _notes, maxLines: 3, decoration: const InputDecoration(labelText: 'Notes')),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: () => Navigator.pop(
+            context,
+            _DocumentEditResult(
+              displayName: _name.text.trim(),
+              documentType: _type,
+              notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+            ),
+          ),
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+String _documentTypeLabel(DocumentType type) => switch (type) {
+      DocumentType.writtenTest => 'Written Test',
+      DocumentType.classRoster => 'Class Roster',
+      DocumentType.atlasRoster => 'Atlas Roster',
+      DocumentType.attendance => 'Attendance',
+      DocumentType.studentSkillSheet => 'Student Skill Sheet',
+      DocumentType.studentEvaluation => 'Student Evaluation',
+      DocumentType.studentPhoto => 'Student Photo',
+      DocumentType.miscellaneous => 'Miscellaneous',
+    };
 
 class _AddDocumentSheet extends StatelessWidget {
   const _AddDocumentSheet({required this.studentId});
