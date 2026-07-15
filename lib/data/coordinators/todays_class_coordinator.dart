@@ -9,52 +9,76 @@ import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
 
 class TodaysClassCoordinator {
-  TodaysClassCoordinator({required AppDatabase db, required StudentCompletionService completionService})
-      : _db = db,
+  TodaysClassCoordinator({
+    required AppDatabase db,
+    required StudentCompletionService completionService,
+  })  : _db = db,
         _completionService = completionService;
 
   final AppDatabase _db;
   final StudentCompletionService _completionService;
 
-  StreamSubscription? _activeClassSub;
-  StreamSubscription? _studentsSub;
-  StreamSubscription? _attemptsSub;
-  StreamSubscription? _resultsSub;
-  StreamSubscription? _ccfSub;
+  StreamSubscription<ClassRecord?>? _activeClassSub;
+  StreamSubscription<List<StudentRecord>>? _studentsSub;
+  StreamSubscription<List<ChecklistAttempt>>? _attemptsSub;
+  StreamSubscription<List<TypedResult>>? _resultsSub;
+  StreamSubscription<List<CcfSession>>? _ccfSub;
 
-  final _controller = StreamController<TodaysClassViewModel?>.broadcast();
+  final StreamController<TodaysClassViewModel?> _controller =
+      StreamController<TodaysClassViewModel?>.broadcast();
+
   ClassRecord? _activeClass;
-
   List<StudentRecord> _students = const [];
   List<ChecklistAttempt> _attempts = const [];
   List<ChecklistItemResult> _itemResults = const [];
   List<CcfSession> _ccfSessions = const [];
 
   TodaysClassViewModel? _last;
+  Future<void> _resubscribeSerial = Future<void>.value();
+  int _generation = 0;
+  bool _started = false;
+  bool _disposed = false;
 
-  Stream<TodaysClassViewModel?> get stream => _controller.stream;
+  /// Replays the latest view model first, then emits future changes.
+  Stream<TodaysClassViewModel?> get stream async* {
+    yield _last;
+    yield* _controller.stream;
+  }
+
   TodaysClassViewModel? get latest => _last;
 
   void startWatching() {
-    _activeClassSub ??= (_db.select(_db.classRecords)..where((t) => t.isActive.equals(true))).watchSingleOrNull().listen((clazz) {
-      _activeClass = clazz;
-      _resubscribeForActiveClass();
-    }, onError: (e, st) {
-      debugPrint('TodaysClassCoordinator watchActiveClass failed: $e\n$st');
-      _controller.addError(e, st);
+    if (_started || _disposed) return;
+    _started = true;
+    _activeClassSub = (_db.select(_db.classRecords)
+          ..where((table) => table.isActive.equals(true))
+          ..limit(1))
+        .watchSingleOrNull()
+        .listen(
+      (clazz) {
+        if (_disposed) return;
+        _activeClass = clazz;
+        _queueResubscribe(clazz);
+      },
+      onError: _addError,
+    );
+  }
+
+  void _queueResubscribe(ClassRecord? clazz) {
+    final generation = ++_generation;
+    _resubscribeSerial = _resubscribeSerial.then((_) async {
+      await _resubscribeForActiveClass(clazz, generation);
+    }).catchError((Object error, StackTrace stackTrace) {
+      _addError(error, stackTrace);
     });
   }
 
-  void _resubscribeForActiveClass() {
-    final clazz = _activeClass;
-    _studentsSub?.cancel();
-    _attemptsSub?.cancel();
-    _resultsSub?.cancel();
-    _ccfSub?.cancel();
-    _studentsSub = null;
-    _attemptsSub = null;
-    _resultsSub = null;
-    _ccfSub = null;
+  Future<void> _resubscribeForActiveClass(
+    ClassRecord? clazz,
+    int generation,
+  ) async {
+    await _cancelClassScopedSubscriptions();
+    if (_disposed || generation != _generation) return;
 
     _students = const [];
     _attempts = const [];
@@ -62,62 +86,131 @@ class TodaysClassCoordinator {
     _ccfSessions = const [];
 
     if (clazz == null) {
-      _emit();
+      _emit(generation: generation);
       return;
     }
 
+    final classId = clazz.id;
+
     _studentsSub = (_db.select(_db.studentRecords)
-          ..where((t) => t.classId.equals(clazz.id))
-          ..orderBy([(t) => OrderingTerm(expression: t.displayName)]))
+          ..where((table) => table.classId.equals(classId))
+          ..orderBy([
+            (table) => OrderingTerm(expression: table.displayName),
+          ]))
         .watch()
-        .listen((rows) {
-      _students = rows;
-      _emit();
-    }, onError: (e, st) {
-      debugPrint('TodaysClassCoordinator watchStudents failed: $e\n$st');
-      _controller.addError(e, st);
-    });
+        .listen(
+      (rows) {
+        if (!_isCurrent(generation, classId)) return;
+        _students = rows;
+        _emit(generation: generation);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (_isCurrent(generation, classId)) {
+          _addError(error, stackTrace);
+        }
+      },
+    );
 
     _attemptsSub = (_db.select(_db.checklistAttempts)
-          ..where((t) => t.classId.equals(clazz.id))
-          ..orderBy([(t) => OrderingTerm(expression: t.updatedAt, mode: OrderingMode.desc)]))
+          ..where((table) => table.classId.equals(classId))
+          ..orderBy([
+            (table) => OrderingTerm(
+                  expression: table.updatedAt,
+                  mode: OrderingMode.desc,
+                ),
+          ]))
         .watch()
-        .listen((rows) {
-      _attempts = rows;
-      _emit();
-    }, onError: (e, st) {
-      debugPrint('TodaysClassCoordinator watchAttempts failed: $e\n$st');
-      _controller.addError(e, st);
-    });
+        .listen(
+      (rows) {
+        if (!_isCurrent(generation, classId)) return;
+        _attempts = rows;
+        _emit(generation: generation);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (_isCurrent(generation, classId)) {
+          _addError(error, stackTrace);
+        }
+      },
+    );
 
     final resultsJoin = _db.select(_db.checklistItemResults).join([
-      innerJoin(_db.checklistAttempts, _db.checklistAttempts.id.equalsExp(_db.checklistItemResults.attemptId)),
+      innerJoin(
+        _db.checklistAttempts,
+        _db.checklistAttempts.id
+            .equalsExp(_db.checklistItemResults.attemptId),
+      ),
     ])
-      ..where(_db.checklistAttempts.classId.equals(clazz.id));
-    _resultsSub = resultsJoin.watch().listen((rows) {
-      _itemResults = [for (final r in rows) r.readTable(_db.checklistItemResults)];
-      _emit();
-    }, onError: (e, st) {
-      debugPrint('TodaysClassCoordinator watchItemResults failed: $e\n$st');
-      _controller.addError(e, st);
-    });
+      ..where(_db.checklistAttempts.classId.equals(classId));
+    _resultsSub = resultsJoin.watch().listen(
+      (rows) {
+        if (!_isCurrent(generation, classId)) return;
+        _itemResults = [
+          for (final row in rows) row.readTable(_db.checklistItemResults),
+        ];
+        _emit(generation: generation);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (_isCurrent(generation, classId)) {
+          _addError(error, stackTrace);
+        }
+      },
+    );
 
     _ccfSub = (_db.select(_db.ccfSessions)
-          ..where((t) => t.classId.equals(clazz.id))
-          ..orderBy([(t) => OrderingTerm(expression: t.startedAt, mode: OrderingMode.desc)]))
+          ..where((table) => table.classId.equals(classId))
+          ..orderBy([
+            (table) => OrderingTerm(
+                  expression: table.startedAt,
+                  mode: OrderingMode.desc,
+                ),
+          ]))
         .watch()
-        .listen((rows) {
-      _ccfSessions = rows;
-      _emit();
-    }, onError: (e, st) {
-      debugPrint('TodaysClassCoordinator watchCCF failed: $e\n$st');
-      _controller.addError(e, st);
-    });
+        .listen(
+      (rows) {
+        if (!_isCurrent(generation, classId)) return;
+        _ccfSessions = rows;
+        _emit(generation: generation);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        if (_isCurrent(generation, classId)) {
+          _addError(error, stackTrace);
+        }
+      },
+    );
   }
 
-  void requestRecompute() => _emit();
+  bool _isCurrent(int generation, String classId) =>
+      !_disposed &&
+      generation == _generation &&
+      _activeClass?.id == classId;
 
-  void _emit() {
+  Future<void> _cancelClassScopedSubscriptions() async {
+    final students = _studentsSub;
+    final attempts = _attemptsSub;
+    final results = _resultsSub;
+    final ccf = _ccfSub;
+    _studentsSub = null;
+    _attemptsSub = null;
+    _resultsSub = null;
+    _ccfSub = null;
+
+    await students?.cancel();
+    await attempts?.cancel();
+    await results?.cancel();
+    await ccf?.cancel();
+  }
+
+  void requestRecompute() => _emit(generation: _generation);
+
+  void _addError(Object error, [StackTrace? stackTrace]) {
+    debugPrint('TodaysClassCoordinator stream failed: $error\n$stackTrace');
+    if (_disposed || _controller.isClosed) return;
+    _controller.addError(error, stackTrace);
+  }
+
+  void _emit({required int generation}) {
+    if (_disposed || _controller.isClosed || generation != _generation) return;
+
     final clazz = _activeClass;
     if (clazz == null) {
       _last = null;
@@ -126,20 +219,22 @@ class TodaysClassCoordinator {
     }
 
     final resultsByAttempt = <String, List<ChecklistItemResult>>{};
-    for (final r in _itemResults) {
-      resultsByAttempt.putIfAbsent(r.attemptId, () => []).add(r);
+    for (final result in _itemResults) {
+      resultsByAttempt.putIfAbsent(result.attemptId, () => []).add(result);
     }
 
     final attemptsByStudent = <String, List<ChecklistAttempt>>{};
-    for (final a in _attempts) {
-      attemptsByStudent.putIfAbsent(a.studentId, () => []).add(a);
+    for (final attempt in _attempts) {
+      attemptsByStudent
+          .putIfAbsent(attempt.studentId, () => [])
+          .add(attempt);
     }
 
     final ccfByStudent = <String, List<CcfSession>>{};
-    for (final s in _ccfSessions) {
-      final sid = s.studentId;
-      if (sid == null) continue;
-      ccfByStudent.putIfAbsent(sid, () => []).add(s);
+    for (final session in _ccfSessions) {
+      final studentId = session.studentId;
+      if (studentId == null) continue;
+      ccfByStudent.putIfAbsent(studentId, () => []).add(session);
     }
 
     final rows = <StudentProgressRow>[];
@@ -148,12 +243,12 @@ class TodaysClassCoordinator {
     var failed = 0;
     var adultComplete = 0;
     var infantComplete = 0;
-    var ccfCompleteReq = 0;
+    var requiredCcfComplete = 0;
     var missingScore = 0;
 
     for (final student in _students) {
       StudentCompletionResult completion;
-      Object? error;
+      Object? calculationError;
       try {
         completion = _completionService.computeForStudentFromData(
           clazz: clazz,
@@ -162,14 +257,21 @@ class TodaysClassCoordinator {
           itemResultsByAttemptId: resultsByAttempt,
           ccfSessionsForStudent: ccfByStudent[student.id] ?? const [],
         );
-      } catch (e, st) {
-        debugPrint('TodaysClass completion failed for ${student.id}: $e\n$st');
-        error = e;
+      } catch (error, stackTrace) {
+        debugPrint(
+          'TodaysClass completion failed for ${student.id}: '
+          '$error\n$stackTrace',
+        );
+        calculationError = error;
         completion = StudentCompletionResult(
           adultStatus: ChecklistStatus.incomplete,
           infantChildStatus: ChecklistStatus.incomplete,
-          ccfStatus: clazz.ccfRequired ? RequirementStatus.incomplete : RequirementStatus.notRequired,
-          writtenTestStatus: clazz.writtenTestRequired ? RequirementStatus.incomplete : RequirementStatus.notRequired,
+          ccfStatus: clazz.ccfRequired
+              ? RequirementStatus.incomplete
+              : RequirementStatus.notRequired,
+          writtenTestStatus: clazz.writtenTestRequired
+              ? RequirementStatus.incomplete
+              : RequirementStatus.notRequired,
           overallResult: OverallStudentResult.incomplete,
           missingRequirements: const [],
           failureReasons: const [],
@@ -178,25 +280,28 @@ class TodaysClassCoordinator {
         );
       }
 
-      String writtenDisplay;
-      if (!clazz.writtenTestRequired) {
-        writtenDisplay = 'N/A';
-      } else if (student.writtenTestScore == null) {
-        writtenDisplay = 'Not Entered';
+      final writtenDisplay = _writtenScoreDisplay(clazz, student);
+      if (clazz.writtenTestRequired && student.writtenTestScore == null) {
         missingScore += 1;
-      } else if (!student.writtenTestingFinalized) {
-        writtenDisplay = 'Unfinalized';
-      } else {
-        writtenDisplay = '${student.writtenTestScore}';
       }
-
-      if (completion.adultStatus == ChecklistStatus.passed) adultComplete += 1;
-      if (completion.infantChildStatus == ChecklistStatus.passed) infantComplete += 1;
-      if (clazz.ccfRequired && completion.ccfStatus == RequirementStatus.passed) ccfCompleteReq += 1;
+      if (completion.adultStatus == ChecklistStatus.passed) {
+        adultComplete += 1;
+      }
+      if (completion.infantChildStatus == ChecklistStatus.passed) {
+        infantComplete += 1;
+      }
+      if (clazz.ccfRequired &&
+          completion.ccfStatus == RequirementStatus.passed) {
+        requiredCcfComplete += 1;
+      }
 
       switch (completion.overallResult) {
         case OverallStudentResult.pass:
-          passed += 1;
+          if (calculationError == null) {
+            passed += 1;
+          } else {
+            incomplete += 1;
+          }
           break;
         case OverallStudentResult.fail:
           failed += 1;
@@ -206,23 +311,17 @@ class TodaysClassCoordinator {
           break;
       }
 
-      // Never treat a calc error as passed.
-      if (error != null && completion.overallResult == OverallStudentResult.pass) {
-        passed -= 1;
-        incomplete += 1;
-      }
-
       rows.add(
         StudentProgressRow(
           student: student,
           completion: completion,
           writtenScoreDisplay: writtenDisplay,
-          calculationError: error,
+          calculationError: calculationError,
         ),
       );
     }
 
-    final vm = TodaysClassViewModel(
+    final viewModel = TodaysClassViewModel(
       classRecord: clazz,
       students: rows,
       totalStudents: rows.length,
@@ -231,19 +330,33 @@ class TodaysClassCoordinator {
       failedCount: failed,
       adultCompleteCount: adultComplete,
       infantChildCompleteCount: infantComplete,
-      requiredCcfCompleteCount: ccfCompleteReq,
+      requiredCcfCompleteCount: requiredCcfComplete,
       missingScoreCount: missingScore,
     );
-    _last = vm;
-    _controller.add(vm);
+    _last = viewModel;
+    _controller.add(viewModel);
+  }
+
+  String _writtenScoreDisplay(ClassRecord clazz, StudentRecord student) {
+    if (!clazz.writtenTestRequired) return 'N/A';
+    final score = student.writtenTestScore;
+    if (score == null) return 'Not Entered';
+    if (!student.writtenTestingFinalized) return 'Unfinalized';
+    return '$score%';
   }
 
   Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    _generation += 1;
     await _activeClassSub?.cancel();
-    await _studentsSub?.cancel();
-    await _attemptsSub?.cancel();
-    await _resultsSub?.cancel();
-    await _ccfSub?.cancel();
+    _activeClassSub = null;
+    try {
+      await _resubscribeSerial;
+    } catch (_) {
+      // Any error has already been surfaced through the coordinator stream.
+    }
+    await _cancelClassScopedSubscriptions();
     await _controller.close();
   }
 }
