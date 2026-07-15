@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cpr_instructor_doc/app/app_scope.dart';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
 import 'package:cpr_instructor_doc/data/repositories/score_repository.dart';
@@ -24,6 +26,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, FocusNode> _focusNodes = {};
   final Map<String, ScoreEditState> _states = {};
+  final Map<String, StudentRecord> _latestStudentsById = {};
 
   @override
   void dispose() {
@@ -40,7 +43,20 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
     return _controllers.putIfAbsent(s.id, () => TextEditingController(text: s.writtenTestScore?.toString() ?? ''));
   }
 
-  FocusNode _focusNodeFor(StudentRecord s) => _focusNodes.putIfAbsent(s.id, () => FocusNode(debugLabel: 'score:${s.id}'));
+  FocusNode _focusNodeFor(StudentRecord s) {
+    return _focusNodes.putIfAbsent(
+      s.id,
+      () {
+        final node = FocusNode(debugLabel: 'score:${s.id}');
+        node.addListener(() {
+          // Auto-save when the field loses focus so scores persist without
+          // requiring an explicit “Save All”.
+          if (!node.hasFocus) unawaited(_autoSaveIfNeeded(studentId: s.id));
+        });
+        return node;
+      },
+    );
+  }
 
   int? _parseScore(String raw) {
     final t = raw.trim();
@@ -77,6 +93,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
 
   void _reconcileFromDb(List<StudentRecord> students) {
     for (final s in students) {
+      _latestStudentsById[s.id] = s;
       final controller = _controllerFor(s);
       final existing = _states[s.id];
       if (existing == null) {
@@ -98,6 +115,55 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
         isSaving: false,
         saveError: null,
       );
+    }
+  }
+
+  Future<void> _autoSaveIfNeeded({required String studentId}) async {
+    if (!mounted) return;
+    final services = AppScope.of(context);
+    if (!services.scoreRepository.isEnabled) return;
+
+    final student = _latestStudentsById[studentId];
+    if (student == null) return;
+    final st = _states[studentId];
+    if (st == null) return;
+    if (st.isSaving) return;
+
+    final raw = st.rawDraft.trim();
+    final draftScore = raw.isEmpty ? null : st.draftScore;
+    final draftFinalized = draftScore == null ? false : st.draftFinalized;
+    final scoreChanged = draftScore != st.originalScore;
+    final finalizedChanged = draftFinalized != st.originalFinalized;
+    if (!scoreChanged && !finalizedChanged) return;
+
+    final err = _validateScore(draftScore);
+    if (err != null) {
+      if (!mounted) return;
+      setState(() => _states[studentId] = st.copyWith(validationError: err));
+      return;
+    }
+
+    setState(() => _states[studentId] = st.copyWith(isSaving: true, saveError: null));
+    try {
+      await services.scoreRepository.saveScoreState(studentId: studentId, score: draftScore, finalized: draftFinalized);
+      if (!mounted) return;
+      setState(() {
+        final latest = _states[studentId];
+        if (latest == null) return;
+        _states[studentId] = latest.copyWith(
+          originalScore: draftScore,
+          draftScore: draftScore,
+          originalFinalized: draftFinalized,
+          draftFinalized: draftFinalized,
+          isDirty: false,
+          isSaving: false,
+          saveError: null,
+        );
+      });
+    } catch (e, st2) {
+      debugPrint('Auto-save score failed for $studentId: $e\n$st2');
+      if (!mounted) return;
+      setState(() => _states[studentId] = st.copyWith(isSaving: false, saveError: e));
     }
   }
 
@@ -130,10 +196,11 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
       final updates = <ScoreStateUpdate>[];
       for (final s in students) {
         final st = _stateFor(s);
-        if (clazz.writtenTestRequired) {
-          final err = _validateScore(st.draftScore);
-          if (err != null) throw StateError('Invalid score for ${s.displayName}: $err');
-        }
+        // Always validate if a value is present, even if the written test is not
+        // required for the class. This allows optional score entry without
+        // letting invalid values slip in.
+        final err = _validateScore(st.draftScore);
+        if (err != null) throw StateError('Invalid score for ${s.displayName}: $err');
         updates.add(ScoreStateUpdate(studentId: s.id, score: st.draftScore, finalized: st.draftFinalized));
       }
       await services.scoreRepository.saveClassScoreStates(updates: updates);
@@ -166,7 +233,6 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
   }
 
   Future<void> _markEnteredFinalized(ClassRecord clazz, List<StudentRecord> students) async {
-    if (!clazz.writtenTestRequired) return;
     final services = AppScope.of(context);
 
     for (final s in students) {
@@ -370,10 +436,14 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                                       child: TextField(
                                         controller: controller,
                                         focusNode: focusNode,
-                                        enabled: required,
+                                        // Allow entering written scores even if the class doesn't require them.
+                                        // This prevents the UI from feeling “broken” when instructors want to
+                                        // capture optional written scores.
+                                        enabled: true,
                                         keyboardType: TextInputType.number,
                                         textInputAction: index == students.length - 1 ? TextInputAction.done : TextInputAction.next,
                                         onSubmitted: (_) {
+                                          unawaited(_autoSaveIfNeeded(studentId: s.id));
                                           if (index == students.length - 1) {
                                             FocusScope.of(context).unfocus();
                                             return;
@@ -382,12 +452,12 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                                           FocusScope.of(context).requestFocus(_focusNodeFor(next));
                                         },
                                         decoration: InputDecoration(
-                                          labelText: required ? 'Score (0–100)' : 'Score (N/A)',
-                                          errorText: required ? st.validationError : null,
+                                          labelText: required ? 'Score (0–100)' : 'Score (optional)',
+                                          errorText: st.validationError,
                                         ),
                                         onChanged: (raw) {
                                           final parsed = _parseScore(raw);
-                                          final err = required ? _validateScore(parsed) : null;
+                                          final err = _validateScore(parsed);
                                           final valueChanged = parsed != st.originalScore;
                                           final shouldUnfinalize = st.draftFinalized && (valueChanged || parsed == null);
                                           setState(() {
@@ -408,9 +478,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                                       children: [
                                         Switch(
                                           value: st.draftFinalized,
-                                          onChanged: (!required)
-                                              ? null
-                                              : (v) async {
+                                          onChanged: (v) async {
                                                   final latest = _stateFor(s);
                                                   if (latest.draftScore == null) {
                                                     setState(() => _states[s.id] = latest.copyWith(validationError: 'Enter a score to finalize'));
@@ -508,7 +576,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                                 children: [
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: required ? () => _markEnteredFinalized(clazz, students) : null,
+                                          onPressed: () => _markEnteredFinalized(clazz, students),
                                       icon: const Icon(Icons.verified_outlined),
                                       label: const Text('Mark Entered Scores Finalized'),
                                     ),
