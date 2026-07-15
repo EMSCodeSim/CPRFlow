@@ -78,7 +78,21 @@ class _TodaysClassScreenState extends State<TodaysClassScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text("Today's Class")),
+      appBar: AppBar(
+        title: const Text("Today's Class"),
+        actions: [
+          IconButton(
+            tooltip: 'Finalize class',
+            onPressed: () => context.push(AppRoutes.finalizeClass),
+            icon: const Icon(Icons.check_circle_outline),
+          ),
+          IconButton(
+            tooltip: 'Archive',
+            onPressed: () => context.push(AppRoutes.archive),
+            icon: const Icon(Icons.archive_outlined),
+          ),
+        ],
+      ),
       body: SafeArea(
         child: StreamBuilder<TodaysClassViewModel?>(
           stream: coordinator.stream,

@@ -103,6 +103,83 @@ class $ClassRecordsTable extends ClassRecords with TableInfo<$ClassRecordsTable,
   );
 
   @override
+  late final GeneratedColumnWithTypeConverter<ClassLifecycleStatus, String> lifecycleStatus = GeneratedColumn<String>(
+    'lifecycle_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('active'),
+  ).withConverter<ClassLifecycleStatus>(const ClassLifecycleStatusConverter());
+
+  @override
+  late final GeneratedColumnWithTypeConverter<ClassFinalizationStatus, String> finalizationStatus = GeneratedColumn<String>(
+    'finalization_status',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('not_started'),
+  ).withConverter<ClassFinalizationStatus>(const ClassFinalizationStatusConverter());
+
+  @override
+  late final GeneratedColumn<DateTime> finalizedAt = GeneratedColumn<DateTime>('finalized_at', aliasedName, true, type: DriftSqlType.dateTime, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<DateTime> completedAt = GeneratedColumn<DateTime>('completed_at', aliasedName, true, type: DriftSqlType.dateTime, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<DateTime> archivedAt = GeneratedColumn<DateTime>('archived_at', aliasedName, true, type: DriftSqlType.dateTime, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<int> finalizedPassedCount = GeneratedColumn<int>('finalized_passed_count', aliasedName, true, type: DriftSqlType.int, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<int> finalizedIncompleteCount = GeneratedColumn<int>('finalized_incomplete_count', aliasedName, true, type: DriftSqlType.int, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<int> finalizedFailedCount = GeneratedColumn<int>('finalized_failed_count', aliasedName, true, type: DriftSqlType.int, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<String> activeSnapshotId = GeneratedColumn<String>('active_snapshot_id', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<int> snapshotSchemaVersion = GeneratedColumn<int>('snapshot_schema_version', aliasedName, true, type: DriftSqlType.int, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<int> completionRuleVersion = GeneratedColumn<int>(
+    'completion_rule_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+
+  @override
+  late final GeneratedColumn<int> checklistDefinitionVersion = GeneratedColumn<int>(
+    'checklist_definition_version',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(1),
+  );
+
+  @override
+  late final GeneratedColumn<String> reopenedFromClassId = GeneratedColumn<String>('reopened_from_class_id', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<int> workingCopyNumber = GeneratedColumn<int>(
+    'working_copy_number',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultValue: const Constant(0),
+  );
+
+  @override
   late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>('created_at', aliasedName, false, type: DriftSqlType.dateTime, requiredDuringInsert: true);
 
   @override
@@ -127,6 +204,20 @@ class $ClassRecordsTable extends ClassRecords with TableInfo<$ClassRecordsTable,
     defaultSkillsCheckOffDate,
     defaultIssueDate,
     isActive,
+    lifecycleStatus,
+    finalizationStatus,
+    finalizedAt,
+    completedAt,
+    archivedAt,
+    finalizedPassedCount,
+    finalizedIncompleteCount,
+    finalizedFailedCount,
+    activeSnapshotId,
+    snapshotSchemaVersion,
+    completionRuleVersion,
+    checklistDefinitionVersion,
+    reopenedFromClassId,
+    workingCopyNumber,
     createdAt,
     updatedAt,
   ];
@@ -175,6 +266,20 @@ class $ClassRecordsTable extends ClassRecords with TableInfo<$ClassRecordsTable,
       defaultSkillsCheckOffDate: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}default_skills_check_off_date']),
       defaultIssueDate: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}default_issue_date']),
       isActive: attachedDatabase.typeMapping.read(DriftSqlType.bool, data['${effectivePrefix}is_active'])!,
+      lifecycleStatus: lifecycleStatus.converter.fromSql(attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}lifecycle_status'])!),
+      finalizationStatus: finalizationStatus.converter.fromSql(attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}finalization_status'])!),
+      finalizedAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}finalized_at']),
+      completedAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}completed_at']),
+      archivedAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}archived_at']),
+      finalizedPassedCount: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}finalized_passed_count']),
+      finalizedIncompleteCount: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}finalized_incomplete_count']),
+      finalizedFailedCount: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}finalized_failed_count']),
+      activeSnapshotId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}active_snapshot_id']),
+      snapshotSchemaVersion: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}snapshot_schema_version']),
+      completionRuleVersion: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}completion_rule_version'])!,
+      checklistDefinitionVersion: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}checklist_definition_version'])!,
+      reopenedFromClassId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}reopened_from_class_id']),
+      workingCopyNumber: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}working_copy_number'])!,
       createdAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       updatedAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
     );
@@ -203,6 +308,20 @@ class ClassRecord extends DataClass implements Insertable<ClassRecord> {
     this.defaultSkillsCheckOffDate,
     this.defaultIssueDate,
     required this.isActive,
+    required this.lifecycleStatus,
+    required this.finalizationStatus,
+    this.finalizedAt,
+    this.completedAt,
+    this.archivedAt,
+    this.finalizedPassedCount,
+    this.finalizedIncompleteCount,
+    this.finalizedFailedCount,
+    this.activeSnapshotId,
+    this.snapshotSchemaVersion,
+    required this.completionRuleVersion,
+    required this.checklistDefinitionVersion,
+    this.reopenedFromClassId,
+    required this.workingCopyNumber,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -224,6 +343,20 @@ class ClassRecord extends DataClass implements Insertable<ClassRecord> {
   final DateTime? defaultSkillsCheckOffDate;
   final DateTime? defaultIssueDate;
   final bool isActive;
+  final ClassLifecycleStatus lifecycleStatus;
+  final ClassFinalizationStatus finalizationStatus;
+  final DateTime? finalizedAt;
+  final DateTime? completedAt;
+  final DateTime? archivedAt;
+  final int? finalizedPassedCount;
+  final int? finalizedIncompleteCount;
+  final int? finalizedFailedCount;
+  final String? activeSnapshotId;
+  final int? snapshotSchemaVersion;
+  final int completionRuleVersion;
+  final int checklistDefinitionVersion;
+  final String? reopenedFromClassId;
+  final int workingCopyNumber;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -249,6 +382,20 @@ class ClassRecord extends DataClass implements Insertable<ClassRecord> {
     }
     if (!nullToAbsent || defaultIssueDate != null) map['default_issue_date'] = Variable<DateTime>(defaultIssueDate!);
     map['is_active'] = Variable<bool>(isActive);
+    map['lifecycle_status'] = Variable<String>(const ClassLifecycleStatusConverter().toSql(lifecycleStatus));
+    map['finalization_status'] = Variable<String>(const ClassFinalizationStatusConverter().toSql(finalizationStatus));
+    if (!nullToAbsent || finalizedAt != null) map['finalized_at'] = Variable<DateTime>(finalizedAt!);
+    if (!nullToAbsent || completedAt != null) map['completed_at'] = Variable<DateTime>(completedAt!);
+    if (!nullToAbsent || archivedAt != null) map['archived_at'] = Variable<DateTime>(archivedAt!);
+    if (!nullToAbsent || finalizedPassedCount != null) map['finalized_passed_count'] = Variable<int>(finalizedPassedCount!);
+    if (!nullToAbsent || finalizedIncompleteCount != null) map['finalized_incomplete_count'] = Variable<int>(finalizedIncompleteCount!);
+    if (!nullToAbsent || finalizedFailedCount != null) map['finalized_failed_count'] = Variable<int>(finalizedFailedCount!);
+    if (!nullToAbsent || activeSnapshotId != null) map['active_snapshot_id'] = Variable<String>(activeSnapshotId!);
+    if (!nullToAbsent || snapshotSchemaVersion != null) map['snapshot_schema_version'] = Variable<int>(snapshotSchemaVersion!);
+    map['completion_rule_version'] = Variable<int>(completionRuleVersion);
+    map['checklist_definition_version'] = Variable<int>(checklistDefinitionVersion);
+    if (!nullToAbsent || reopenedFromClassId != null) map['reopened_from_class_id'] = Variable<String>(reopenedFromClassId!);
+    map['working_copy_number'] = Variable<int>(workingCopyNumber);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -272,6 +419,20 @@ class ClassRecord extends DataClass implements Insertable<ClassRecord> {
     defaultSkillsCheckOffDate: defaultSkillsCheckOffDate == null && nullToAbsent ? const Value.absent() : Value(defaultSkillsCheckOffDate),
     defaultIssueDate: defaultIssueDate == null && nullToAbsent ? const Value.absent() : Value(defaultIssueDate),
     isActive: Value(isActive),
+    lifecycleStatus: Value(lifecycleStatus),
+    finalizationStatus: Value(finalizationStatus),
+    finalizedAt: finalizedAt == null && nullToAbsent ? const Value.absent() : Value(finalizedAt),
+    completedAt: completedAt == null && nullToAbsent ? const Value.absent() : Value(completedAt),
+    archivedAt: archivedAt == null && nullToAbsent ? const Value.absent() : Value(archivedAt),
+    finalizedPassedCount: finalizedPassedCount == null && nullToAbsent ? const Value.absent() : Value(finalizedPassedCount),
+    finalizedIncompleteCount: finalizedIncompleteCount == null && nullToAbsent ? const Value.absent() : Value(finalizedIncompleteCount),
+    finalizedFailedCount: finalizedFailedCount == null && nullToAbsent ? const Value.absent() : Value(finalizedFailedCount),
+    activeSnapshotId: activeSnapshotId == null && nullToAbsent ? const Value.absent() : Value(activeSnapshotId),
+    snapshotSchemaVersion: snapshotSchemaVersion == null && nullToAbsent ? const Value.absent() : Value(snapshotSchemaVersion),
+    completionRuleVersion: Value(completionRuleVersion),
+    checklistDefinitionVersion: Value(checklistDefinitionVersion),
+    reopenedFromClassId: reopenedFromClassId == null && nullToAbsent ? const Value.absent() : Value(reopenedFromClassId),
+    workingCopyNumber: Value(workingCopyNumber),
     createdAt: Value(createdAt),
     updatedAt: Value(updatedAt),
   );
@@ -297,6 +458,20 @@ class ClassRecord extends DataClass implements Insertable<ClassRecord> {
       'defaultSkillsCheckOffDate': serializer.toJson<DateTime?>(defaultSkillsCheckOffDate),
       'defaultIssueDate': serializer.toJson<DateTime?>(defaultIssueDate),
       'isActive': serializer.toJson<bool>(isActive),
+      'lifecycleStatus': serializer.toJson<String>(const ClassLifecycleStatusConverter().toSql(lifecycleStatus)),
+      'finalizationStatus': serializer.toJson<String>(const ClassFinalizationStatusConverter().toSql(finalizationStatus)),
+      'finalizedAt': serializer.toJson<DateTime?>(finalizedAt),
+      'completedAt': serializer.toJson<DateTime?>(completedAt),
+      'archivedAt': serializer.toJson<DateTime?>(archivedAt),
+      'finalizedPassedCount': serializer.toJson<int?>(finalizedPassedCount),
+      'finalizedIncompleteCount': serializer.toJson<int?>(finalizedIncompleteCount),
+      'finalizedFailedCount': serializer.toJson<int?>(finalizedFailedCount),
+      'activeSnapshotId': serializer.toJson<String?>(activeSnapshotId),
+      'snapshotSchemaVersion': serializer.toJson<int?>(snapshotSchemaVersion),
+      'completionRuleVersion': serializer.toJson<int>(completionRuleVersion),
+      'checklistDefinitionVersion': serializer.toJson<int>(checklistDefinitionVersion),
+      'reopenedFromClassId': serializer.toJson<String?>(reopenedFromClassId),
+      'workingCopyNumber': serializer.toJson<int>(workingCopyNumber),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -322,6 +497,20 @@ class ClassRecordsCompanion extends UpdateCompanion<ClassRecord> {
     this.defaultSkillsCheckOffDate = const Value.absent(),
     this.defaultIssueDate = const Value.absent(),
     this.isActive = const Value.absent(),
+    this.lifecycleStatus = const Value.absent(),
+    this.finalizationStatus = const Value.absent(),
+    this.finalizedAt = const Value.absent(),
+    this.completedAt = const Value.absent(),
+    this.archivedAt = const Value.absent(),
+    this.finalizedPassedCount = const Value.absent(),
+    this.finalizedIncompleteCount = const Value.absent(),
+    this.finalizedFailedCount = const Value.absent(),
+    this.activeSnapshotId = const Value.absent(),
+    this.snapshotSchemaVersion = const Value.absent(),
+    this.completionRuleVersion = const Value.absent(),
+    this.checklistDefinitionVersion = const Value.absent(),
+    this.reopenedFromClassId = const Value.absent(),
+    this.workingCopyNumber = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
@@ -343,6 +532,20 @@ class ClassRecordsCompanion extends UpdateCompanion<ClassRecord> {
   final Value<DateTime?> defaultSkillsCheckOffDate;
   final Value<DateTime?> defaultIssueDate;
   final Value<bool> isActive;
+  final Value<ClassLifecycleStatus> lifecycleStatus;
+  final Value<ClassFinalizationStatus> finalizationStatus;
+  final Value<DateTime?> finalizedAt;
+  final Value<DateTime?> completedAt;
+  final Value<DateTime?> archivedAt;
+  final Value<int?> finalizedPassedCount;
+  final Value<int?> finalizedIncompleteCount;
+  final Value<int?> finalizedFailedCount;
+  final Value<String?> activeSnapshotId;
+  final Value<int?> snapshotSchemaVersion;
+  final Value<int> completionRuleVersion;
+  final Value<int> checklistDefinitionVersion;
+  final Value<String?> reopenedFromClassId;
+  final Value<int> workingCopyNumber;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
 
@@ -364,6 +567,20 @@ class ClassRecordsCompanion extends UpdateCompanion<ClassRecord> {
     Value<DateTime?>? defaultSkillsCheckOffDate,
     Value<DateTime?>? defaultIssueDate,
     Value<bool>? isActive,
+    Value<ClassLifecycleStatus>? lifecycleStatus,
+    Value<ClassFinalizationStatus>? finalizationStatus,
+    Value<DateTime?>? finalizedAt,
+    Value<DateTime?>? completedAt,
+    Value<DateTime?>? archivedAt,
+    Value<int?>? finalizedPassedCount,
+    Value<int?>? finalizedIncompleteCount,
+    Value<int?>? finalizedFailedCount,
+    Value<String?>? activeSnapshotId,
+    Value<int?>? snapshotSchemaVersion,
+    Value<int>? completionRuleVersion,
+    Value<int>? checklistDefinitionVersion,
+    Value<String?>? reopenedFromClassId,
+    Value<int>? workingCopyNumber,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
   }) => ClassRecordsCompanion(
@@ -384,6 +601,20 @@ class ClassRecordsCompanion extends UpdateCompanion<ClassRecord> {
     defaultSkillsCheckOffDate: defaultSkillsCheckOffDate ?? this.defaultSkillsCheckOffDate,
     defaultIssueDate: defaultIssueDate ?? this.defaultIssueDate,
     isActive: isActive ?? this.isActive,
+    lifecycleStatus: lifecycleStatus ?? this.lifecycleStatus,
+    finalizationStatus: finalizationStatus ?? this.finalizationStatus,
+    finalizedAt: finalizedAt ?? this.finalizedAt,
+    completedAt: completedAt ?? this.completedAt,
+    archivedAt: archivedAt ?? this.archivedAt,
+    finalizedPassedCount: finalizedPassedCount ?? this.finalizedPassedCount,
+    finalizedIncompleteCount: finalizedIncompleteCount ?? this.finalizedIncompleteCount,
+    finalizedFailedCount: finalizedFailedCount ?? this.finalizedFailedCount,
+    activeSnapshotId: activeSnapshotId ?? this.activeSnapshotId,
+    snapshotSchemaVersion: snapshotSchemaVersion ?? this.snapshotSchemaVersion,
+    completionRuleVersion: completionRuleVersion ?? this.completionRuleVersion,
+    checklistDefinitionVersion: checklistDefinitionVersion ?? this.checklistDefinitionVersion,
+    reopenedFromClassId: reopenedFromClassId ?? this.reopenedFromClassId,
+    workingCopyNumber: workingCopyNumber ?? this.workingCopyNumber,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -441,6 +672,47 @@ class ClassRecordsCompanion extends UpdateCompanion<ClassRecord> {
       if (!nullToAbsent || v != null) map['default_issue_date'] = Variable<DateTime>(v!);
     }
     if (isActive.present) map['is_active'] = Variable<bool>(isActive.value);
+    if (lifecycleStatus.present) map['lifecycle_status'] = Variable<String>(const ClassLifecycleStatusConverter().toSql(lifecycleStatus.value));
+    if (finalizationStatus.present) map['finalization_status'] = Variable<String>(const ClassFinalizationStatusConverter().toSql(finalizationStatus.value));
+    if (finalizedAt.present) {
+      final v = finalizedAt.value;
+      if (!nullToAbsent || v != null) map['finalized_at'] = Variable<DateTime>(v!);
+    }
+    if (completedAt.present) {
+      final v = completedAt.value;
+      if (!nullToAbsent || v != null) map['completed_at'] = Variable<DateTime>(v!);
+    }
+    if (archivedAt.present) {
+      final v = archivedAt.value;
+      if (!nullToAbsent || v != null) map['archived_at'] = Variable<DateTime>(v!);
+    }
+    if (finalizedPassedCount.present) {
+      final v = finalizedPassedCount.value;
+      if (!nullToAbsent || v != null) map['finalized_passed_count'] = Variable<int>(v!);
+    }
+    if (finalizedIncompleteCount.present) {
+      final v = finalizedIncompleteCount.value;
+      if (!nullToAbsent || v != null) map['finalized_incomplete_count'] = Variable<int>(v!);
+    }
+    if (finalizedFailedCount.present) {
+      final v = finalizedFailedCount.value;
+      if (!nullToAbsent || v != null) map['finalized_failed_count'] = Variable<int>(v!);
+    }
+    if (activeSnapshotId.present) {
+      final v = activeSnapshotId.value;
+      if (!nullToAbsent || v != null) map['active_snapshot_id'] = Variable<String>(v!);
+    }
+    if (snapshotSchemaVersion.present) {
+      final v = snapshotSchemaVersion.value;
+      if (!nullToAbsent || v != null) map['snapshot_schema_version'] = Variable<int>(v!);
+    }
+    if (completionRuleVersion.present) map['completion_rule_version'] = Variable<int>(completionRuleVersion.value);
+    if (checklistDefinitionVersion.present) map['checklist_definition_version'] = Variable<int>(checklistDefinitionVersion.value);
+    if (reopenedFromClassId.present) {
+      final v = reopenedFromClassId.value;
+      if (!nullToAbsent || v != null) map['reopened_from_class_id'] = Variable<String>(v!);
+    }
+    if (workingCopyNumber.present) map['working_copy_number'] = Variable<int>(workingCopyNumber.value);
     if (createdAt.present) map['created_at'] = Variable<DateTime>(createdAt.value);
     if (updatedAt.present) map['updated_at'] = Variable<DateTime>(updatedAt.value);
     return map;
@@ -512,6 +784,25 @@ class $StudentRecordsTable extends StudentRecords with TableInfo<$StudentRecords
 
   @override
   late final GeneratedColumn<DateTime> issueDate = GeneratedColumn<DateTime>('issue_date', aliasedName, true, type: DriftSqlType.dateTime, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumnWithTypeConverter<ManualStudentResultOverride, String> manualResultOverride = GeneratedColumn<String>(
+    'manual_result_override',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('none'),
+  ).withConverter<ManualStudentResultOverride>(const ManualStudentResultOverrideConverter());
+
+  @override
+  late final GeneratedColumn<String> manualResultReason = GeneratedColumn<String>('manual_result_reason', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<DateTime> manualResultChangedAt = GeneratedColumn<DateTime>('manual_result_changed_at', aliasedName, true, type: DriftSqlType.dateTime, requiredDuringInsert: false);
+
+  @override
+  late final GeneratedColumn<String> manualResultInstructorInitials = GeneratedColumn<String>('manual_result_instructor_initials', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
   @override
   late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>('created_at', aliasedName, false, type: DriftSqlType.dateTime, requiredDuringInsert: true);
   @override
@@ -532,6 +823,10 @@ class $StudentRecordsTable extends StudentRecords with TableInfo<$StudentRecords
     writtenTestingFinalized,
     skillsCheckOffDate,
     issueDate,
+    manualResultOverride,
+    manualResultReason,
+    manualResultChangedAt,
+    manualResultInstructorInitials,
     createdAt,
     updatedAt,
   ];
@@ -575,6 +870,10 @@ class $StudentRecordsTable extends StudentRecords with TableInfo<$StudentRecords
       writtenTestingFinalized: attachedDatabase.typeMapping.read(DriftSqlType.bool, data['${effectivePrefix}written_testing_finalized'])!,
       skillsCheckOffDate: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}skills_check_off_date']),
       issueDate: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}issue_date']),
+      manualResultOverride: manualResultOverride.converter.fromSql(attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}manual_result_override'])!),
+      manualResultReason: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}manual_result_reason']),
+      manualResultChangedAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}manual_result_changed_at']),
+      manualResultInstructorInitials: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}manual_result_instructor_initials']),
       createdAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
       updatedAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}updated_at'])!,
     );
@@ -599,6 +898,10 @@ class StudentRecord extends DataClass implements Insertable<StudentRecord> {
     required this.writtenTestingFinalized,
     this.skillsCheckOffDate,
     this.issueDate,
+    required this.manualResultOverride,
+    this.manualResultReason,
+    this.manualResultChangedAt,
+    this.manualResultInstructorInitials,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -616,6 +919,10 @@ class StudentRecord extends DataClass implements Insertable<StudentRecord> {
   final bool writtenTestingFinalized;
   final DateTime? skillsCheckOffDate;
   final DateTime? issueDate;
+  final ManualStudentResultOverride manualResultOverride;
+  final String? manualResultReason;
+  final DateTime? manualResultChangedAt;
+  final String? manualResultInstructorInitials;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -635,6 +942,10 @@ class StudentRecord extends DataClass implements Insertable<StudentRecord> {
     map['written_testing_finalized'] = Variable<bool>(writtenTestingFinalized);
     if (!nullToAbsent || skillsCheckOffDate != null) map['skills_check_off_date'] = Variable<DateTime>(skillsCheckOffDate!);
     if (!nullToAbsent || issueDate != null) map['issue_date'] = Variable<DateTime>(issueDate!);
+    map['manual_result_override'] = Variable<String>(const ManualStudentResultOverrideConverter().toSql(manualResultOverride));
+    if (!nullToAbsent || manualResultReason != null) map['manual_result_reason'] = Variable<String>(manualResultReason!);
+    if (!nullToAbsent || manualResultChangedAt != null) map['manual_result_changed_at'] = Variable<DateTime>(manualResultChangedAt!);
+    if (!nullToAbsent || manualResultInstructorInitials != null) map['manual_result_instructor_initials'] = Variable<String>(manualResultInstructorInitials!);
     map['created_at'] = Variable<DateTime>(createdAt);
     map['updated_at'] = Variable<DateTime>(updatedAt);
     return map;
@@ -654,6 +965,10 @@ class StudentRecord extends DataClass implements Insertable<StudentRecord> {
     writtenTestingFinalized: Value(writtenTestingFinalized),
     skillsCheckOffDate: skillsCheckOffDate == null && nullToAbsent ? const Value.absent() : Value(skillsCheckOffDate),
     issueDate: issueDate == null && nullToAbsent ? const Value.absent() : Value(issueDate),
+    manualResultOverride: Value(manualResultOverride),
+    manualResultReason: manualResultReason == null && nullToAbsent ? const Value.absent() : Value(manualResultReason),
+    manualResultChangedAt: manualResultChangedAt == null && nullToAbsent ? const Value.absent() : Value(manualResultChangedAt),
+    manualResultInstructorInitials: manualResultInstructorInitials == null && nullToAbsent ? const Value.absent() : Value(manualResultInstructorInitials),
     createdAt: Value(createdAt),
     updatedAt: Value(updatedAt),
   );
@@ -675,6 +990,10 @@ class StudentRecord extends DataClass implements Insertable<StudentRecord> {
       'writtenTestingFinalized': serializer.toJson<bool>(writtenTestingFinalized),
       'skillsCheckOffDate': serializer.toJson<DateTime?>(skillsCheckOffDate),
       'issueDate': serializer.toJson<DateTime?>(issueDate),
+      'manualResultOverride': serializer.toJson<String>(const ManualStudentResultOverrideConverter().toSql(manualResultOverride)),
+      'manualResultReason': serializer.toJson<String?>(manualResultReason),
+      'manualResultChangedAt': serializer.toJson<DateTime?>(manualResultChangedAt),
+      'manualResultInstructorInitials': serializer.toJson<String?>(manualResultInstructorInitials),
       'createdAt': serializer.toJson<DateTime>(createdAt),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
     };
@@ -696,6 +1015,10 @@ class StudentRecordsCompanion extends UpdateCompanion<StudentRecord> {
     this.writtenTestingFinalized = const Value.absent(),
     this.skillsCheckOffDate = const Value.absent(),
     this.issueDate = const Value.absent(),
+    this.manualResultOverride = const Value.absent(),
+    this.manualResultReason = const Value.absent(),
+    this.manualResultChangedAt = const Value.absent(),
+    this.manualResultInstructorInitials = const Value.absent(),
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
   });
@@ -713,6 +1036,10 @@ class StudentRecordsCompanion extends UpdateCompanion<StudentRecord> {
   final Value<bool> writtenTestingFinalized;
   final Value<DateTime?> skillsCheckOffDate;
   final Value<DateTime?> issueDate;
+  final Value<ManualStudentResultOverride> manualResultOverride;
+  final Value<String?> manualResultReason;
+  final Value<DateTime?> manualResultChangedAt;
+  final Value<String?> manualResultInstructorInitials;
   final Value<DateTime> createdAt;
   final Value<DateTime> updatedAt;
 
@@ -730,6 +1057,10 @@ class StudentRecordsCompanion extends UpdateCompanion<StudentRecord> {
     Value<bool>? writtenTestingFinalized,
     Value<DateTime?>? skillsCheckOffDate,
     Value<DateTime?>? issueDate,
+    Value<ManualStudentResultOverride>? manualResultOverride,
+    Value<String?>? manualResultReason,
+    Value<DateTime?>? manualResultChangedAt,
+    Value<String?>? manualResultInstructorInitials,
     Value<DateTime>? createdAt,
     Value<DateTime>? updatedAt,
   }) => StudentRecordsCompanion(
@@ -746,6 +1077,10 @@ class StudentRecordsCompanion extends UpdateCompanion<StudentRecord> {
     writtenTestingFinalized: writtenTestingFinalized ?? this.writtenTestingFinalized,
     skillsCheckOffDate: skillsCheckOffDate ?? this.skillsCheckOffDate,
     issueDate: issueDate ?? this.issueDate,
+    manualResultOverride: manualResultOverride ?? this.manualResultOverride,
+    manualResultReason: manualResultReason ?? this.manualResultReason,
+    manualResultChangedAt: manualResultChangedAt ?? this.manualResultChangedAt,
+    manualResultInstructorInitials: manualResultInstructorInitials ?? this.manualResultInstructorInitials,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
   );
@@ -789,6 +1124,19 @@ class StudentRecordsCompanion extends UpdateCompanion<StudentRecord> {
     if (issueDate.present) {
       final v = issueDate.value;
       if (!nullToAbsent || v != null) map['issue_date'] = Variable<DateTime>(v!);
+    }
+    if (manualResultOverride.present) map['manual_result_override'] = Variable<String>(const ManualStudentResultOverrideConverter().toSql(manualResultOverride.value));
+    if (manualResultReason.present) {
+      final v = manualResultReason.value;
+      if (!nullToAbsent || v != null) map['manual_result_reason'] = Variable<String>(v!);
+    }
+    if (manualResultChangedAt.present) {
+      final v = manualResultChangedAt.value;
+      if (!nullToAbsent || v != null) map['manual_result_changed_at'] = Variable<DateTime>(v!);
+    }
+    if (manualResultInstructorInitials.present) {
+      final v = manualResultInstructorInitials.value;
+      if (!nullToAbsent || v != null) map['manual_result_instructor_initials'] = Variable<String>(v!);
     }
     if (createdAt.present) map['created_at'] = Variable<DateTime>(createdAt.value);
     if (updatedAt.present) map['updated_at'] = Variable<DateTime>(updatedAt.value);
@@ -1489,6 +1837,509 @@ class CcfSessionsCompanion extends UpdateCompanion<CcfSession> {
   }
 }
 
+class $FinalClassSnapshotsTable extends FinalClassSnapshots with TableInfo<$FinalClassSnapshotsTable, FinalClassSnapshot> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $FinalClassSnapshotsTable(this.attachedDatabase, [this._alias]);
+
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>('id', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+
+  @override
+  late final GeneratedColumn<String> classId = GeneratedColumn<String>(
+    'class_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('REFERENCES "class_records" ("id") ON DELETE RESTRICT'),
+  );
+
+  @override
+  late final GeneratedColumn<int> snapshotNumber = GeneratedColumn<int>('snapshot_number', aliasedName, false, type: DriftSqlType.int, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<int> schemaVersion = GeneratedColumn<int>('schema_version', aliasedName, false, type: DriftSqlType.int, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<int> completionRuleVersion = GeneratedColumn<int>('completion_rule_version', aliasedName, false, type: DriftSqlType.int, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<int> checklistDefinitionVersion = GeneratedColumn<int>('checklist_definition_version', aliasedName, false, type: DriftSqlType.int, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<DateTime> createdAt = GeneratedColumn<DateTime>('created_at', aliasedName, false, type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<DateTime> finalizedAt = GeneratedColumn<DateTime>('finalized_at', aliasedName, false, type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> classDataJson = GeneratedColumn<String>('class_data_json', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> studentDataJson = GeneratedColumn<String>('student_data_json', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> checklistDataJson = GeneratedColumn<String>('checklist_data_json', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> ccfDataJson = GeneratedColumn<String>('ccf_data_json', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> scoreDataJson = GeneratedColumn<String>('score_data_json', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> completionResultsJson = GeneratedColumn<String>('completion_results_json', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> totalsJson = GeneratedColumn<String>('totals_json', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> checksum = GeneratedColumn<String>('checksum', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    classId,
+    snapshotNumber,
+    schemaVersion,
+    completionRuleVersion,
+    checklistDefinitionVersion,
+    createdAt,
+    finalizedAt,
+    classDataJson,
+    studentDataJson,
+    checklistDataJson,
+    ccfDataJson,
+    scoreDataJson,
+    completionResultsJson,
+    totalsJson,
+    checksum,
+  ];
+
+  @override
+  String get aliasedName => _alias ?? 'final_class_snapshots';
+  @override
+  String get actualTableName => 'final_class_snapshots';
+
+  @override
+  VerificationContext validateIntegrity(Insertable<FinalClassSnapshot> instance, {bool isInserting = false}) {
+    final ctx = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) ctx.handle(const VerificationMeta('id'), id.isAcceptableOrUnknown(data['id']!, const VerificationMeta('id')));
+    if (data.containsKey('class_id')) ctx.handle(const VerificationMeta('classId'), classId.isAcceptableOrUnknown(data['class_id']!, const VerificationMeta('classId')));
+    if (data.containsKey('snapshot_number')) ctx.handle(const VerificationMeta('snapshotNumber'), snapshotNumber.isAcceptableOrUnknown(data['snapshot_number']!, const VerificationMeta('snapshotNumber')));
+    if (data.containsKey('schema_version')) ctx.handle(const VerificationMeta('schemaVersion'), schemaVersion.isAcceptableOrUnknown(data['schema_version']!, const VerificationMeta('schemaVersion')));
+    if (data.containsKey('completion_rule_version')) ctx.handle(const VerificationMeta('completionRuleVersion'), completionRuleVersion.isAcceptableOrUnknown(data['completion_rule_version']!, const VerificationMeta('completionRuleVersion')));
+    if (data.containsKey('checklist_definition_version')) ctx.handle(const VerificationMeta('checklistDefinitionVersion'), checklistDefinitionVersion.isAcceptableOrUnknown(data['checklist_definition_version']!, const VerificationMeta('checklistDefinitionVersion')));
+    if (data.containsKey('created_at')) ctx.handle(const VerificationMeta('createdAt'), createdAt.isAcceptableOrUnknown(data['created_at']!, const VerificationMeta('createdAt')));
+    if (data.containsKey('finalized_at')) ctx.handle(const VerificationMeta('finalizedAt'), finalizedAt.isAcceptableOrUnknown(data['finalized_at']!, const VerificationMeta('finalizedAt')));
+    if (data.containsKey('class_data_json')) ctx.handle(const VerificationMeta('classDataJson'), classDataJson.isAcceptableOrUnknown(data['class_data_json']!, const VerificationMeta('classDataJson')));
+    if (data.containsKey('student_data_json')) ctx.handle(const VerificationMeta('studentDataJson'), studentDataJson.isAcceptableOrUnknown(data['student_data_json']!, const VerificationMeta('studentDataJson')));
+    if (data.containsKey('checklist_data_json')) ctx.handle(const VerificationMeta('checklistDataJson'), checklistDataJson.isAcceptableOrUnknown(data['checklist_data_json']!, const VerificationMeta('checklistDataJson')));
+    if (data.containsKey('ccf_data_json')) ctx.handle(const VerificationMeta('ccfDataJson'), ccfDataJson.isAcceptableOrUnknown(data['ccf_data_json']!, const VerificationMeta('ccfDataJson')));
+    if (data.containsKey('score_data_json')) ctx.handle(const VerificationMeta('scoreDataJson'), scoreDataJson.isAcceptableOrUnknown(data['score_data_json']!, const VerificationMeta('scoreDataJson')));
+    if (data.containsKey('completion_results_json')) ctx.handle(const VerificationMeta('completionResultsJson'), completionResultsJson.isAcceptableOrUnknown(data['completion_results_json']!, const VerificationMeta('completionResultsJson')));
+    if (data.containsKey('totals_json')) ctx.handle(const VerificationMeta('totalsJson'), totalsJson.isAcceptableOrUnknown(data['totals_json']!, const VerificationMeta('totalsJson')));
+    if (data.containsKey('checksum')) ctx.handle(const VerificationMeta('checksum'), checksum.isAcceptableOrUnknown(data['checksum']!, const VerificationMeta('checksum')));
+    return ctx;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+
+  @override
+  FinalClassSnapshot map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return FinalClassSnapshot(
+      id: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      classId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}class_id'])!,
+      snapshotNumber: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}snapshot_number'])!,
+      schemaVersion: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}schema_version'])!,
+      completionRuleVersion: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}completion_rule_version'])!,
+      checklistDefinitionVersion: attachedDatabase.typeMapping.read(DriftSqlType.int, data['${effectivePrefix}checklist_definition_version'])!,
+      createdAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}created_at'])!,
+      finalizedAt: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}finalized_at'])!,
+      classDataJson: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}class_data_json'])!,
+      studentDataJson: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}student_data_json'])!,
+      checklistDataJson: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}checklist_data_json'])!,
+      ccfDataJson: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}ccf_data_json'])!,
+      scoreDataJson: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}score_data_json'])!,
+      completionResultsJson: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}completion_results_json'])!,
+      totalsJson: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}totals_json'])!,
+      checksum: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}checksum'])!,
+    );
+  }
+
+  @override
+  $FinalClassSnapshotsTable createAlias(String alias) => $FinalClassSnapshotsTable(attachedDatabase, alias);
+}
+
+class FinalClassSnapshot extends DataClass implements Insertable<FinalClassSnapshot> {
+  const FinalClassSnapshot({
+    required this.id,
+    required this.classId,
+    required this.snapshotNumber,
+    required this.schemaVersion,
+    required this.completionRuleVersion,
+    required this.checklistDefinitionVersion,
+    required this.createdAt,
+    required this.finalizedAt,
+    required this.classDataJson,
+    required this.studentDataJson,
+    required this.checklistDataJson,
+    required this.ccfDataJson,
+    required this.scoreDataJson,
+    required this.completionResultsJson,
+    required this.totalsJson,
+    required this.checksum,
+  });
+
+  final String id;
+  final String classId;
+  final int snapshotNumber;
+  final int schemaVersion;
+  final int completionRuleVersion;
+  final int checklistDefinitionVersion;
+  final DateTime createdAt;
+  final DateTime finalizedAt;
+  final String classDataJson;
+  final String studentDataJson;
+  final String checklistDataJson;
+  final String ccfDataJson;
+  final String scoreDataJson;
+  final String completionResultsJson;
+  final String totalsJson;
+  final String checksum;
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) => <String, Expression>{
+        'id': Variable<String>(id),
+        'class_id': Variable<String>(classId),
+        'snapshot_number': Variable<int>(snapshotNumber),
+        'schema_version': Variable<int>(schemaVersion),
+        'completion_rule_version': Variable<int>(completionRuleVersion),
+        'checklist_definition_version': Variable<int>(checklistDefinitionVersion),
+        'created_at': Variable<DateTime>(createdAt),
+        'finalized_at': Variable<DateTime>(finalizedAt),
+        'class_data_json': Variable<String>(classDataJson),
+        'student_data_json': Variable<String>(studentDataJson),
+        'checklist_data_json': Variable<String>(checklistDataJson),
+        'ccf_data_json': Variable<String>(ccfDataJson),
+        'score_data_json': Variable<String>(scoreDataJson),
+        'completion_results_json': Variable<String>(completionResultsJson),
+        'totals_json': Variable<String>(totalsJson),
+        'checksum': Variable<String>(checksum),
+      };
+
+  FinalClassSnapshotsCompanion toCompanion(bool nullToAbsent) => FinalClassSnapshotsCompanion(
+        id: Value(id),
+        classId: Value(classId),
+        snapshotNumber: Value(snapshotNumber),
+        schemaVersion: Value(schemaVersion),
+        completionRuleVersion: Value(completionRuleVersion),
+        checklistDefinitionVersion: Value(checklistDefinitionVersion),
+        createdAt: Value(createdAt),
+        finalizedAt: Value(finalizedAt),
+        classDataJson: Value(classDataJson),
+        studentDataJson: Value(studentDataJson),
+        checklistDataJson: Value(checklistDataJson),
+        ccfDataJson: Value(ccfDataJson),
+        scoreDataJson: Value(scoreDataJson),
+        completionResultsJson: Value(completionResultsJson),
+        totalsJson: Value(totalsJson),
+        checksum: Value(checksum),
+      );
+
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'classId': serializer.toJson<String>(classId),
+      'snapshotNumber': serializer.toJson<int>(snapshotNumber),
+      'schemaVersion': serializer.toJson<int>(schemaVersion),
+      'completionRuleVersion': serializer.toJson<int>(completionRuleVersion),
+      'checklistDefinitionVersion': serializer.toJson<int>(checklistDefinitionVersion),
+      'createdAt': serializer.toJson<DateTime>(createdAt),
+      'finalizedAt': serializer.toJson<DateTime>(finalizedAt),
+      'classDataJson': serializer.toJson<String>(classDataJson),
+      'studentDataJson': serializer.toJson<String>(studentDataJson),
+      'checklistDataJson': serializer.toJson<String>(checklistDataJson),
+      'ccfDataJson': serializer.toJson<String>(ccfDataJson),
+      'scoreDataJson': serializer.toJson<String>(scoreDataJson),
+      'completionResultsJson': serializer.toJson<String>(completionResultsJson),
+      'totalsJson': serializer.toJson<String>(totalsJson),
+      'checksum': serializer.toJson<String>(checksum),
+    };
+  }
+}
+
+class FinalClassSnapshotsCompanion extends UpdateCompanion<FinalClassSnapshot> {
+  const FinalClassSnapshotsCompanion({
+    this.id = const Value.absent(),
+    this.classId = const Value.absent(),
+    this.snapshotNumber = const Value.absent(),
+    this.schemaVersion = const Value.absent(),
+    this.completionRuleVersion = const Value.absent(),
+    this.checklistDefinitionVersion = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.finalizedAt = const Value.absent(),
+    this.classDataJson = const Value.absent(),
+    this.studentDataJson = const Value.absent(),
+    this.checklistDataJson = const Value.absent(),
+    this.ccfDataJson = const Value.absent(),
+    this.scoreDataJson = const Value.absent(),
+    this.completionResultsJson = const Value.absent(),
+    this.totalsJson = const Value.absent(),
+    this.checksum = const Value.absent(),
+  });
+
+  final Value<String> id;
+  final Value<String> classId;
+  final Value<int> snapshotNumber;
+  final Value<int> schemaVersion;
+  final Value<int> completionRuleVersion;
+  final Value<int> checklistDefinitionVersion;
+  final Value<DateTime> createdAt;
+  final Value<DateTime> finalizedAt;
+  final Value<String> classDataJson;
+  final Value<String> studentDataJson;
+  final Value<String> checklistDataJson;
+  final Value<String> ccfDataJson;
+  final Value<String> scoreDataJson;
+  final Value<String> completionResultsJson;
+  final Value<String> totalsJson;
+  final Value<String> checksum;
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) map['id'] = Variable<String>(id.value);
+    if (classId.present) map['class_id'] = Variable<String>(classId.value);
+    if (snapshotNumber.present) map['snapshot_number'] = Variable<int>(snapshotNumber.value);
+    if (schemaVersion.present) map['schema_version'] = Variable<int>(schemaVersion.value);
+    if (completionRuleVersion.present) map['completion_rule_version'] = Variable<int>(completionRuleVersion.value);
+    if (checklistDefinitionVersion.present) map['checklist_definition_version'] = Variable<int>(checklistDefinitionVersion.value);
+    if (createdAt.present) map['created_at'] = Variable<DateTime>(createdAt.value);
+    if (finalizedAt.present) map['finalized_at'] = Variable<DateTime>(finalizedAt.value);
+    if (classDataJson.present) map['class_data_json'] = Variable<String>(classDataJson.value);
+    if (studentDataJson.present) map['student_data_json'] = Variable<String>(studentDataJson.value);
+    if (checklistDataJson.present) map['checklist_data_json'] = Variable<String>(checklistDataJson.value);
+    if (ccfDataJson.present) map['ccf_data_json'] = Variable<String>(ccfDataJson.value);
+    if (scoreDataJson.present) map['score_data_json'] = Variable<String>(scoreDataJson.value);
+    if (completionResultsJson.present) map['completion_results_json'] = Variable<String>(completionResultsJson.value);
+    if (totalsJson.present) map['totals_json'] = Variable<String>(totalsJson.value);
+    if (checksum.present) map['checksum'] = Variable<String>(checksum.value);
+    return map;
+  }
+}
+
+class $FinalizationAuditEntriesTable extends FinalizationAuditEntries with TableInfo<$FinalizationAuditEntriesTable, FinalizationAuditEntry> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $FinalizationAuditEntriesTable(this.attachedDatabase, [this._alias]);
+
+  @override
+  late final GeneratedColumn<String> id = GeneratedColumn<String>('id', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> classId = GeneratedColumn<String>(
+    'class_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('REFERENCES "class_records" ("id") ON DELETE RESTRICT'),
+  );
+  @override
+  late final GeneratedColumn<String> snapshotId = GeneratedColumn<String>(
+    'snapshot_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways('REFERENCES "final_class_snapshots" ("id") ON DELETE SET NULL'),
+  );
+  @override
+  late final GeneratedColumn<String> action = GeneratedColumn<String>('action', aliasedName, false, type: DriftSqlType.string, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<DateTime> timestamp = GeneratedColumn<DateTime>('timestamp', aliasedName, false, type: DriftSqlType.dateTime, requiredDuringInsert: true);
+  @override
+  late final GeneratedColumn<String> instructorName = GeneratedColumn<String>('instructor_name', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  late final GeneratedColumn<String> instructorInitials = GeneratedColumn<String>('instructor_initials', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  late final GeneratedColumn<String> previousValueJson = GeneratedColumn<String>('previous_value_json', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  late final GeneratedColumn<String> newValueJson = GeneratedColumn<String>('new_value_json', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
+  @override
+  late final GeneratedColumn<String> reason = GeneratedColumn<String>('reason', aliasedName, true, type: DriftSqlType.string, requiredDuringInsert: false);
+
+  @override
+  List<GeneratedColumn> get $columns => [id, classId, snapshotId, action, timestamp, instructorName, instructorInitials, previousValueJson, newValueJson, reason];
+
+  @override
+  String get aliasedName => _alias ?? 'finalization_audit_entries';
+  @override
+  String get actualTableName => 'finalization_audit_entries';
+
+  @override
+  VerificationContext validateIntegrity(Insertable<FinalizationAuditEntry> instance, {bool isInserting = false}) {
+    final ctx = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) ctx.handle(const VerificationMeta('id'), id.isAcceptableOrUnknown(data['id']!, const VerificationMeta('id')));
+    if (data.containsKey('class_id')) ctx.handle(const VerificationMeta('classId'), classId.isAcceptableOrUnknown(data['class_id']!, const VerificationMeta('classId')));
+    if (data.containsKey('snapshot_id')) ctx.handle(const VerificationMeta('snapshotId'), snapshotId.isAcceptableOrUnknown(data['snapshot_id']!, const VerificationMeta('snapshotId')));
+    if (data.containsKey('action')) ctx.handle(const VerificationMeta('action'), action.isAcceptableOrUnknown(data['action']!, const VerificationMeta('action')));
+    if (data.containsKey('timestamp')) ctx.handle(const VerificationMeta('timestamp'), timestamp.isAcceptableOrUnknown(data['timestamp']!, const VerificationMeta('timestamp')));
+    return ctx;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+
+  @override
+  FinalizationAuditEntry map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return FinalizationAuditEntry(
+      id: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}id'])!,
+      classId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}class_id'])!,
+      snapshotId: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}snapshot_id']),
+      action: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}action'])!,
+      timestamp: attachedDatabase.typeMapping.read(DriftSqlType.dateTime, data['${effectivePrefix}timestamp'])!,
+      instructorName: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}instructor_name']),
+      instructorInitials: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}instructor_initials']),
+      previousValueJson: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}previous_value_json']),
+      newValueJson: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}new_value_json']),
+      reason: attachedDatabase.typeMapping.read(DriftSqlType.string, data['${effectivePrefix}reason']),
+    );
+  }
+
+  @override
+  $FinalizationAuditEntriesTable createAlias(String alias) => $FinalizationAuditEntriesTable(attachedDatabase, alias);
+}
+
+class FinalizationAuditEntry extends DataClass implements Insertable<FinalizationAuditEntry> {
+  const FinalizationAuditEntry({
+    required this.id,
+    required this.classId,
+    this.snapshotId,
+    required this.action,
+    required this.timestamp,
+    this.instructorName,
+    this.instructorInitials,
+    this.previousValueJson,
+    this.newValueJson,
+    this.reason,
+  });
+
+  final String id;
+  final String classId;
+  final String? snapshotId;
+  final String action;
+  final DateTime timestamp;
+  final String? instructorName;
+  final String? instructorInitials;
+  final String? previousValueJson;
+  final String? newValueJson;
+  final String? reason;
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<String>(id);
+    map['class_id'] = Variable<String>(classId);
+    if (!nullToAbsent || snapshotId != null) map['snapshot_id'] = Variable<String>(snapshotId!);
+    map['action'] = Variable<String>(action);
+    map['timestamp'] = Variable<DateTime>(timestamp);
+    if (!nullToAbsent || instructorName != null) map['instructor_name'] = Variable<String>(instructorName!);
+    if (!nullToAbsent || instructorInitials != null) map['instructor_initials'] = Variable<String>(instructorInitials!);
+    if (!nullToAbsent || previousValueJson != null) map['previous_value_json'] = Variable<String>(previousValueJson!);
+    if (!nullToAbsent || newValueJson != null) map['new_value_json'] = Variable<String>(newValueJson!);
+    if (!nullToAbsent || reason != null) map['reason'] = Variable<String>(reason!);
+    return map;
+  }
+
+  FinalizationAuditEntriesCompanion toCompanion(bool nullToAbsent) => FinalizationAuditEntriesCompanion(
+        id: Value(id),
+        classId: Value(classId),
+        snapshotId: snapshotId == null && nullToAbsent ? const Value.absent() : Value(snapshotId),
+        action: Value(action),
+        timestamp: Value(timestamp),
+        instructorName: instructorName == null && nullToAbsent ? const Value.absent() : Value(instructorName),
+        instructorInitials: instructorInitials == null && nullToAbsent ? const Value.absent() : Value(instructorInitials),
+        previousValueJson: previousValueJson == null && nullToAbsent ? const Value.absent() : Value(previousValueJson),
+        newValueJson: newValueJson == null && nullToAbsent ? const Value.absent() : Value(newValueJson),
+        reason: reason == null && nullToAbsent ? const Value.absent() : Value(reason),
+      );
+
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<String>(id),
+      'classId': serializer.toJson<String>(classId),
+      'snapshotId': serializer.toJson<String?>(snapshotId),
+      'action': serializer.toJson<String>(action),
+      'timestamp': serializer.toJson<DateTime>(timestamp),
+      'instructorName': serializer.toJson<String?>(instructorName),
+      'instructorInitials': serializer.toJson<String?>(instructorInitials),
+      'previousValueJson': serializer.toJson<String?>(previousValueJson),
+      'newValueJson': serializer.toJson<String?>(newValueJson),
+      'reason': serializer.toJson<String?>(reason),
+    };
+  }
+}
+
+class FinalizationAuditEntriesCompanion extends UpdateCompanion<FinalizationAuditEntry> {
+  const FinalizationAuditEntriesCompanion({
+    this.id = const Value.absent(),
+    this.classId = const Value.absent(),
+    this.snapshotId = const Value.absent(),
+    this.action = const Value.absent(),
+    this.timestamp = const Value.absent(),
+    this.instructorName = const Value.absent(),
+    this.instructorInitials = const Value.absent(),
+    this.previousValueJson = const Value.absent(),
+    this.newValueJson = const Value.absent(),
+    this.reason = const Value.absent(),
+  });
+
+  final Value<String> id;
+  final Value<String> classId;
+  final Value<String?> snapshotId;
+  final Value<String> action;
+  final Value<DateTime> timestamp;
+  final Value<String?> instructorName;
+  final Value<String?> instructorInitials;
+  final Value<String?> previousValueJson;
+  final Value<String?> newValueJson;
+  final Value<String?> reason;
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) map['id'] = Variable<String>(id.value);
+    if (classId.present) map['class_id'] = Variable<String>(classId.value);
+    if (snapshotId.present) {
+      final v = snapshotId.value;
+      if (!nullToAbsent || v != null) map['snapshot_id'] = Variable<String>(v!);
+    }
+    if (action.present) map['action'] = Variable<String>(action.value);
+    if (timestamp.present) map['timestamp'] = Variable<DateTime>(timestamp.value);
+    if (instructorName.present) {
+      final v = instructorName.value;
+      if (!nullToAbsent || v != null) map['instructor_name'] = Variable<String>(v!);
+    }
+    if (instructorInitials.present) {
+      final v = instructorInitials.value;
+      if (!nullToAbsent || v != null) map['instructor_initials'] = Variable<String>(v!);
+    }
+    if (previousValueJson.present) {
+      final v = previousValueJson.value;
+      if (!nullToAbsent || v != null) map['previous_value_json'] = Variable<String>(v!);
+    }
+    if (newValueJson.present) {
+      final v = newValueJson.value;
+      if (!nullToAbsent || v != null) map['new_value_json'] = Variable<String>(v!);
+    }
+    if (reason.present) {
+      final v = reason.value;
+      if (!nullToAbsent || v != null) map['reason'] = Variable<String>(v!);
+    }
+    return map;
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
 
@@ -1497,10 +2348,12 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $ChecklistAttemptsTable checklistAttempts = $ChecklistAttemptsTable(this);
   late final $ChecklistItemResultsTable checklistItemResults = $ChecklistItemResultsTable(this);
   late final $CcfSessionsTable ccfSessions = $CcfSessionsTable(this);
+  late final $FinalClassSnapshotsTable finalClassSnapshots = $FinalClassSnapshotsTable(this);
+  late final $FinalizationAuditEntriesTable finalizationAuditEntries = $FinalizationAuditEntriesTable(this);
 
   @override
-  Iterable<TableInfo<Table, dynamic>> get allTables => [classRecords, studentRecords, checklistAttempts, checklistItemResults, ccfSessions];
+  Iterable<TableInfo<Table, dynamic>> get allTables => [classRecords, studentRecords, checklistAttempts, checklistItemResults, ccfSessions, finalClassSnapshots, finalizationAuditEntries];
 
   @override
-  List<DatabaseSchemaEntity> get allSchemaEntities => [classRecords, studentRecords, checklistAttempts, checklistItemResults, ccfSessions];
+  List<DatabaseSchemaEntity> get allSchemaEntities => [classRecords, studentRecords, checklistAttempts, checklistItemResults, ccfSessions, finalClassSnapshots, finalizationAuditEntries];
 }

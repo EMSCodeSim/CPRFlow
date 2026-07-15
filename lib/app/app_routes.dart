@@ -11,4 +11,10 @@ class AppRoutes {
   static const ccfTimer = '/ccf-timer';
   static const studentCcf = '/today/ccf';
   static const scores = '/today/scores';
+
+  // Phase 3
+  static const finalizeClass = '/today/finalize';
+  static const archive = '/archive';
+  static const archivedClassDetail = '/archive/detail';
+  static const finalizationSuccess = '/today/finalize/success';
 }

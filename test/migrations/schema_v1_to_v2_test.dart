@@ -67,7 +67,7 @@ CREATE TABLE student_records (
 }
 
 void main() {
-  test('Real v1 database migrates to v2 without data loss', () async {
+  test('Real v1 database migrates to v3 without data loss', () async {
     final file = await _createV1DbFile();
     final appDb = AppDatabase(NativeDatabase(file));
 
@@ -91,7 +91,14 @@ void main() {
     // New tables exist.
     final tables = await appDb.customSelect("SELECT name FROM sqlite_master WHERE type='table'").get();
     final tableNames = tables.map((r) => r.read<String>('name')).toSet();
-    expect(tableNames, containsAll(['checklist_attempts', 'checklist_item_results', 'ccf_sessions']));
+    expect(tableNames, containsAll(['checklist_attempts', 'checklist_item_results', 'ccf_sessions', 'final_class_snapshots', 'finalization_audit_entries']));
+
+    // Phase 3 defaults.
+    expect(active.lifecycleStatus, ClassLifecycleStatus.active);
+    expect(active.finalizationStatus, ClassFinalizationStatus.notStarted);
+    expect(active.finalizedAt, isNull);
+    expect(student.manualResultOverride, ManualStudentResultOverride.none);
+    expect(student.manualResultReason, isNull);
 
     await appDb.close();
   });

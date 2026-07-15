@@ -143,13 +143,17 @@ class HomeScreen extends StatelessWidget {
                                 Text('Archive (Phase 3)', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
                                 const SizedBox(height: 6),
                                 Text(
-                                  'Class finalization and archive workflows will be added in Phase 3.',
+                                  'View previously finalized classes and create working copies.',
                                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: scheme.onSurface.withValues(alpha: 0.78)),
                                 ),
                                 const SizedBox(height: 10),
                                 SizedBox(
                                   width: double.infinity,
-                                  child: OutlinedButton.icon(onPressed: null, icon: const Icon(Icons.archive_outlined), label: const Text('Open Archive')),
+                                  child: OutlinedButton.icon(
+                                    onPressed: () => context.push(AppRoutes.archive),
+                                    icon: const Icon(Icons.archive_outlined),
+                                    label: const Text('Open Archive'),
+                                  ),
                                 ),
                               ],
                             ),
@@ -309,17 +313,17 @@ class HomeScreen extends StatelessWidget {
                     color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
                     border: Border.all(color: scheme.outline.withValues(alpha: 0.16)),
                   ),
-                  child: Text(
-                    'Class finalization will be added in Phase 3.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-                  ),
+                  child: Text('To switch classes, finalize the current class or cancel the action.', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
                 ),
                 const SizedBox(height: 10),
                 Row(
                   children: [
                     Expanded(
                       child: OutlinedButton.icon(
-                        onPressed: null,
+                        onPressed: () {
+                          context.pop();
+                          context.push(AppRoutes.finalizeClass);
+                        },
                         icon: const Icon(Icons.check_circle_outline),
                         label: const Text('Finalize Current Class'),
                       ),

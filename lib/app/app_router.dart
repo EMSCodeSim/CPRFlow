@@ -6,6 +6,10 @@ import 'package:cpr_instructor_doc/ui/classes/todays_class_screen.dart';
 import 'package:cpr_instructor_doc/ui/ccf/ccf_timer_screen.dart';
 import 'package:cpr_instructor_doc/ui/checklists/checklist_screen.dart';
 import 'package:cpr_instructor_doc/ui/home/home_screen.dart';
+import 'package:cpr_instructor_doc/ui/finalization/finalize_class_wizard_screen.dart';
+import 'package:cpr_instructor_doc/ui/finalization/finalization_success_screen.dart';
+import 'package:cpr_instructor_doc/ui/archive/archive_screen.dart';
+import 'package:cpr_instructor_doc/ui/archive/archived_class_detail_screen.dart';
 import 'package:cpr_instructor_doc/ui/routes/safe_error_screen.dart';
 import 'package:cpr_instructor_doc/ui/routes/unknown_route_screen.dart';
 import 'package:cpr_instructor_doc/ui/scores/score_entry_screen.dart';
@@ -123,6 +127,50 @@ class AppRouter {
             return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Scores are unavailable in recovery mode.'));
           }
           return const MaterialPage(child: ScoreEntryScreen());
+        },
+      ),
+
+      // Phase 3
+      GoRoute(
+        path: AppRoutes.finalizeClass,
+        name: 'finalizeClass',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Finalization is unavailable in recovery mode.'));
+          }
+          return const MaterialPage(child: FinalizeClassWizardScreen());
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.finalizationSuccess,
+        name: 'finalizationSuccess',
+        pageBuilder: (context, state) {
+          final snapshotId = state.uri.queryParameters['snapshotId'];
+          if (snapshotId == null || snapshotId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing snapshot', message: 'No snapshot ID provided.', onRetryLocation: AppRoutes.home));
+          }
+          return MaterialPage(child: FinalizationSuccessScreen(snapshotId: snapshotId));
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.archive,
+        name: 'archive',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Archive is unavailable in recovery mode.'));
+          }
+          return const MaterialPage(child: ArchiveScreen());
+        },
+      ),
+      GoRoute(
+        path: '${AppRoutes.archivedClassDetail}/:snapshotId',
+        name: 'archivedClassDetail',
+        pageBuilder: (context, state) {
+          final snapshotId = state.pathParameters['snapshotId'];
+          if (snapshotId == null || snapshotId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing snapshot', message: 'No snapshot ID provided.', onRetryLocation: AppRoutes.archive));
+          }
+          return MaterialPage(child: ArchivedClassDetailScreen(snapshotId: snapshotId));
         },
       ),
     ],

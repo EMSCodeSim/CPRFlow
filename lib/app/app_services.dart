@@ -5,6 +5,8 @@ import 'package:cpr_instructor_doc/data/repositories/class_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/score_repository.dart';
 import 'package:cpr_instructor_doc/data/repositories/student_repository.dart';
 import 'package:cpr_instructor_doc/domain/completion/student_completion_service.dart';
+import 'package:cpr_instructor_doc/domain/finalization/class_finalization_service.dart';
+import 'package:cpr_instructor_doc/domain/archive/class_working_copy_service.dart';
 
 /// Holds initialized app-wide dependencies.
 ///
@@ -16,7 +18,9 @@ class AppServices {
         checklistRepository = ChecklistRepository(database),
         ccfRepository = CcfRepository(database),
         scoreRepository = ScoreRepository(database),
-        studentCompletionService = StudentCompletionService.unwired();
+        studentCompletionService = StudentCompletionService.unwired(),
+        classFinalizationService = null,
+        classWorkingCopyService = database == null ? null : ClassWorkingCopyService(database);
 
   /// Must be called after the default constructor so [studentCompletionService]
   /// can reference the same repository instances.
@@ -24,6 +28,12 @@ class AppServices {
         checklistRepository: checklistRepository,
         ccfRepository: ccfRepository,
       );
+
+  void wirePhase3Services() {
+    final db = database;
+    if (db == null) return;
+    classFinalizationService = ClassFinalizationService(db: db, completionService: studentCompletionService);
+  }
 
   /// Advanced/test-only constructor to inject repositories.
   AppServices.custom({
@@ -34,6 +44,8 @@ class AppServices {
     required this.ccfRepository,
     required this.scoreRepository,
     required this.studentCompletionService,
+    this.classFinalizationService,
+    this.classWorkingCopyService,
   });
 
   /// A running Drift database instance.
@@ -47,6 +59,9 @@ class AppServices {
   final CcfRepository ccfRepository;
   final ScoreRepository scoreRepository;
   final StudentCompletionService studentCompletionService;
+
+  ClassFinalizationService? classFinalizationService;
+  final ClassWorkingCopyService? classWorkingCopyService;
 
   bool get hasClassData => database != null;
 

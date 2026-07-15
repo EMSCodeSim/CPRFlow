@@ -28,6 +28,18 @@ class ClassRepository {
     return (db.select(db.classRecords)..orderBy([(t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc)])).watch();
   }
 
+  Stream<List<ClassRecord>> watchArchivedClasses() {
+    final db = _db;
+    if (db == null) return const Stream.empty();
+    return (db.select(db.classRecords)
+          ..where((t) => t.lifecycleStatus.isInValues([ClassLifecycleStatus.completed, ClassLifecycleStatus.completedIncomplete]))
+          ..orderBy([
+            (t) => OrderingTerm(expression: t.finalizedAt, mode: OrderingMode.desc),
+            (t) => OrderingTerm(expression: t.createdAt, mode: OrderingMode.desc),
+          ]))
+        .watch();
+  }
+
   Future<ClassRecord?> getActiveClass() async {
     final db = _db;
     if (db == null) return null;
