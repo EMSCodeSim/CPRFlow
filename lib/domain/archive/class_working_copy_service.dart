@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
 import 'package:cpr_instructor_doc/domain/finalization/final_snapshot_models.dart';
 import 'package:cpr_instructor_doc/domain/finalization/finalization_audit_actions.dart';
-import 'package:cpr_instructor_doc/domain/finalization/snapshot_checksum.dart';
+import 'package:cpr_instructor_doc/domain/finalization/snapshot_row_codec.dart';
 import 'package:cpr_instructor_doc/utils/id_generator.dart';
 import 'package:drift/drift.dart';
 import 'package:flutter/foundation.dart';
@@ -40,9 +40,9 @@ class ClassWorkingCopyService {
       final snapshotRow = await (_db.select(_db.finalClassSnapshots)..where((t) => t.id.equals(snapshotId))).getSingleOrNull();
       if (snapshotRow == null) throw StateError('Snapshot not found');
 
-      final canonicalJson = _canonicalJsonFromRow(snapshotRow);
-      final checksum = SnapshotChecksum.sha256HexFromUtf8(canonicalJson);
-      if (checksum != snapshotRow.checksum) throw StateError('Snapshot checksum validation failed');
+      if (!SnapshotRowCodec.validate(snapshotRow)) {
+        throw StateError('Snapshot checksum validation failed');
+      }
 
       final active = await (_db.select(_db.classRecords)..where((t) => t.isActive.equals(true))).getSingleOrNull();
       if (active != null) throw StateError('Active class already exists');
@@ -137,24 +137,4 @@ class ClassWorkingCopyService {
     });
   }
 
-  String _canonicalJsonFromRow(FinalClassSnapshot row) {
-    // Rebuild enough of the snapshot to reproduce the canonical string.
-    // For Phase 3 this is limited to the stored JSON segments.
-    final classData = jsonDecode(row.classDataJson) as Map;
-    final studentData = jsonDecode(row.studentDataJson) as List;
-    final totals = jsonDecode(row.totalsJson) as Map;
-    final createdAt = row.createdAt;
-    final finalizedAt = row.finalizedAt;
-    final snap = FinalClassSnapshotV1(
-      schemaVersion: row.schemaVersion,
-      completionRuleVersion: row.completionRuleVersion,
-      checklistDefinitionVersion: row.checklistDefinitionVersion,
-      createdAt: createdAt,
-      finalizedAt: finalizedAt,
-      classData: FinalSnapshotClassV1.fromJson(classData.cast<String, Object?>()),
-      students: studentData.cast<Map>().map((e) => FinalSnapshotStudentV1.fromJson(e.cast<String, Object?>())).toList(growable: false),
-      totals: FinalSnapshotTotalsV1.fromJson(totals.cast<String, Object?>()),
-    );
-    return snap.canonicalJson();
-  }
 }
