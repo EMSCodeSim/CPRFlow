@@ -186,4 +186,66 @@ void main() {
     expect(r.adultStatus, ChecklistStatus.passed);
     await db.close();
   });
+
+  test('Missing legacy passingScore uses 84 and adds a warning', () async {
+    final db = AppDatabase.inMemory();
+    final classRepo = ClassRepository(db);
+    final studentRepo = StudentRepository(db);
+    final checklistRepo = ChecklistRepository(db);
+    final ccfRepo = CcfRepository(db);
+    final now = DateTime(2025, 1, 1);
+
+    // writtenTestRequired true but passingScore missing (malformed/migrated).
+    await classRepo.upsertClass(
+      companion: ClassRecordsCompanion(
+        id: const drift.Value('c1'),
+        className: const drift.Value('C1'),
+        courseType: const drift.Value(CourseType.blsProvider),
+        isActive: const drift.Value(true),
+        writtenTestRequired: const drift.Value(true),
+        passingScore: const drift.Value(null),
+        createdAt: drift.Value(now),
+        updatedAt: drift.Value(now),
+      ),
+      makeActiveIfNone: true,
+    );
+    await studentRepo.upsertStudent(
+      companion: StudentRecordsCompanion(
+        id: const drift.Value('s1'),
+        classId: const drift.Value('c1'),
+        displayName: const drift.Value('Student'),
+        writtenTestScore: const drift.Value(80),
+        writtenTestingFinalized: const drift.Value(true),
+        createdAt: drift.Value(now),
+        updatedAt: drift.Value(now),
+      ),
+    );
+
+    final clazz = (await classRepo.getActiveClass())!;
+
+    // Make both checklists pass.
+    Future<void> makePass(ChecklistType type) async {
+      final def = ChecklistRegistry.definitionFor(type);
+      final attempt = await checklistRepo.createOrGetUnfinalizedAttempt(classId: clazz.id, studentId: 's1', checklistType: type);
+      for (final item in def.items.where((i) => i.required)) {
+        await checklistRepo.saveItemResult(attemptId: attempt.id, itemId: item.id, value: ChecklistItemResultValue.passed);
+      }
+      await checklistRepo.finalizeAttempt(attemptId: attempt.id, definition: def);
+    }
+
+    await makePass(ChecklistType.adult);
+    await makePass(ChecklistType.infantChild);
+
+    final student = (await studentRepo.getById('s1'))!;
+    final service = StudentCompletionService.unwired()..wire(checklistRepository: checklistRepo, ccfRepository: ccfRepo);
+    final r = await service.computeForStudent(clazz: clazz, student: student);
+
+    // 80 is below fallback 84.
+    expect(r.writtenTestStatus, RequirementStatus.failed);
+    expect(r.overallResult, OverallStudentResult.fail);
+    expect(r.validationWarnings, isNotEmpty);
+    expect(r.validationWarnings.join(' '), contains('defaulted'));
+
+    await db.close();
+  });
 }

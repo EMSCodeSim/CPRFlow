@@ -1,8 +1,11 @@
 import 'package:cpr_instructor_doc/app/app_scope.dart';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
+import 'package:cpr_instructor_doc/data/repositories/score_repository.dart';
+import 'package:cpr_instructor_doc/domain/completion/student_completion_service.dart';
+import 'package:cpr_instructor_doc/domain/scores/score_edit_state.dart';
+import 'package:cpr_instructor_doc/ui/widgets/database_error_panel.dart';
 import 'package:cpr_instructor_doc/ui/widgets/keyboard_dismiss.dart';
 import 'package:cpr_instructor_doc/ui/widgets/keyboard_safe_save_bar.dart';
-import 'package:cpr_instructor_doc/ui/widgets/database_error_panel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -15,10 +18,11 @@ class ScoreEntryScreen extends StatefulWidget {
 }
 
 class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
-  bool _saving = false;
-  Object? _saveError;
+  bool _savingAll = false;
+  Object? _saveAllError;
 
   final Map<String, TextEditingController> _controllers = {};
+  final Map<String, ScoreEditState> _states = {};
 
   @override
   void dispose() {
@@ -35,8 +39,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
   int? _parseScore(String raw) {
     final t = raw.trim();
     if (t.isEmpty) return null;
-    final v = int.tryParse(t);
-    return v;
+    return int.tryParse(t);
   }
 
   String? _validateScore(int? v) {
@@ -45,45 +48,160 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
     return null;
   }
 
+  ScoreEditState _stateFor(StudentRecord s) {
+    return _states.putIfAbsent(
+      s.id,
+      () {
+        final raw = s.writtenTestScore?.toString() ?? '';
+        return ScoreEditState(
+          studentId: s.id,
+          originalScore: s.writtenTestScore,
+          draftScore: s.writtenTestScore,
+          originalFinalized: s.writtenTestingFinalized,
+          draftFinalized: s.writtenTestingFinalized,
+          rawDraft: raw,
+          validationError: _validateScore(s.writtenTestScore),
+          isDirty: false,
+          isSaving: false,
+          saveError: null,
+        );
+      },
+    );
+  }
+
+  void _reconcileFromDb(List<StudentRecord> students) {
+    for (final s in students) {
+      final controller = _controllerFor(s);
+      final existing = _states[s.id];
+      if (existing == null) {
+        _stateFor(s);
+        continue;
+      }
+      if (existing.isDirty || existing.isSaving) continue;
+
+      final raw = s.writtenTestScore?.toString() ?? '';
+      if (controller.text != raw) controller.text = raw;
+      _states[s.id] = existing.copyWith(
+        originalScore: s.writtenTestScore,
+        draftScore: s.writtenTestScore,
+        originalFinalized: s.writtenTestingFinalized,
+        draftFinalized: s.writtenTestingFinalized,
+        rawDraft: raw,
+        validationError: _validateScore(s.writtenTestScore),
+        isDirty: false,
+        isSaving: false,
+        saveError: null,
+      );
+    }
+  }
+
+  String _statusLabel({required bool required, required int? draftScore, required bool draftFinalized, required int threshold}) {
+    if (!required) return 'N/A';
+    if (draftScore == null) return 'INCOMPLETE';
+    if (!draftFinalized) return 'INCOMPLETE';
+    return draftScore >= threshold ? 'PASSED' : 'FAILED';
+  }
+
+  Color _statusColor(ColorScheme scheme, String status) {
+    switch (status) {
+      case 'PASSED':
+        return scheme.primary;
+      case 'FAILED':
+        return scheme.error;
+      default:
+        return scheme.onSurface.withValues(alpha: 0.75);
+    }
+  }
+
   Future<void> _saveAll(ClassRecord clazz, List<StudentRecord> students) async {
     final services = AppScope.of(context);
     setState(() {
-      _saving = true;
-      _saveError = null;
+      _savingAll = true;
+      _saveAllError = null;
     });
 
     try {
-      final updates = <String, int?>{};
+      final updates = <ScoreStateUpdate>[];
       for (final s in students) {
-        final parsed = _parseScore(_controllerFor(s).text);
-        final err = _validateScore(parsed);
-        if (err != null) throw StateError('Invalid score for ${s.displayName}: $err');
-        updates[s.id] = parsed;
+        final st = _stateFor(s);
+        if (clazz.writtenTestRequired) {
+          final err = _validateScore(st.draftScore);
+          if (err != null) throw StateError('Invalid score for ${s.displayName}: $err');
+        }
+        updates.add(ScoreStateUpdate(studentId: s.id, score: st.draftScore, finalized: st.draftFinalized));
       }
-      await services.scoreRepository.saveMultipleScores(scoresByStudentId: updates);
+      await services.scoreRepository.saveClassScoreStates(updates: updates);
+
+      if (!mounted) return;
+      setState(() {
+        for (final u in updates) {
+          final cur = _states[u.studentId];
+          if (cur == null) continue;
+          _states[u.studentId] = cur.copyWith(
+            originalScore: u.score,
+            draftScore: u.score,
+            originalFinalized: u.finalized,
+            draftFinalized: u.finalized,
+            isDirty: false,
+            isSaving: false,
+            saveError: null,
+          );
+        }
+        _savingAll = false;
+      });
     } catch (e, st) {
       debugPrint('Save scores failed: $e\n$st');
       if (!mounted) return;
       setState(() {
-        _saving = false;
-        _saveError = e;
+        _savingAll = false;
+        _saveAllError = e;
       });
-      return;
     }
-
-    if (!mounted) return;
-    setState(() {
-      _saving = false;
-      _saveError = null;
-    });
   }
 
-  Future<void> _markEnteredFinalized(ClassRecord clazz) async {
+  Future<void> _markEnteredFinalized(ClassRecord clazz, List<StudentRecord> students) async {
+    if (!clazz.writtenTestRequired) return;
     final services = AppScope.of(context);
+
+    for (final s in students) {
+      final st = _stateFor(s);
+      if (st.rawDraft.trim().isEmpty) continue;
+      final err = _validateScore(st.draftScore);
+      if (err != null) {
+        setState(() => _states[s.id] = st.copyWith(validationError: err));
+        return;
+      }
+    }
+
+    final updates = <ScoreStateUpdate>[];
+    for (final s in students) {
+      final st = _stateFor(s);
+      final hasScore = st.draftScore != null;
+      updates.add(ScoreStateUpdate(studentId: s.id, score: st.draftScore, finalized: hasScore));
+    }
+
     try {
-      await services.scoreRepository.markEnteredScoresFinalizedForClass(clazz.id);
+      await services.scoreRepository.saveClassScoreStates(updates: updates);
+      if (!mounted) return;
+      setState(() {
+        for (final u in updates) {
+          final cur = _states[u.studentId];
+          if (cur == null) continue;
+          _states[u.studentId] = cur.copyWith(
+            originalScore: u.score,
+            draftScore: u.score,
+            originalFinalized: u.finalized,
+            draftFinalized: u.finalized,
+            isDirty: false,
+            isSaving: false,
+            saveError: null,
+          );
+        }
+      });
     } catch (e, st) {
-      debugPrint('Finalize scores failed: $e\n$st');
+      debugPrint('Finalize entered scores failed: $e\n$st');
+      if (!mounted) return;
+      setState(() => _saveAllError = e);
     }
   }
 
@@ -115,9 +233,32 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
       ),
     );
     if (confirm != true) return;
-    await AppScope.of(context).scoreRepository.clearScore(studentId: s.id);
-    _controllerFor(s).text = '';
-    setState(() {});
+
+    final services = AppScope.of(context);
+    final st = _stateFor(s);
+    setState(() => _states[s.id] = st.copyWith(isSaving: true, saveError: null));
+    try {
+      await services.scoreRepository.saveScoreState(studentId: s.id, score: null, finalized: false);
+      if (!mounted) return;
+      _controllerFor(s).text = '';
+      setState(() {
+        _states[s.id] = st.copyWith(
+          originalScore: null,
+          draftScore: null,
+          originalFinalized: false,
+          draftFinalized: false,
+          rawDraft: '',
+          validationError: null,
+          isDirty: false,
+          isSaving: false,
+          saveError: null,
+        );
+      });
+    } catch (e, st2) {
+      debugPrint('Clear score failed: $e\n$st2');
+      if (!mounted) return;
+      setState(() => _states[s.id] = st.copyWith(isSaving: false, saveError: e));
+    }
   }
 
   @override
@@ -134,7 +275,12 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
 
     return KeyboardDismiss(
       child: Scaffold(
-        appBar: AppBar(title: const Text('Scores')),
+        appBar: AppBar(
+          title: const Text('Scores'),
+          actions: [
+            IconButton(onPressed: () => FocusManager.instance.primaryFocus?.unfocus(), tooltip: 'Hide keyboard', icon: const Icon(Icons.keyboard_hide_outlined)),
+          ],
+        ),
         body: SafeArea(
           child: StreamBuilder<ClassRecord?>(
             stream: services.classRepository.watchActiveClass(),
@@ -145,6 +291,9 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
               final clazz = classSnap.data;
               if (clazz == null) return const Center(child: Text('No active class.'));
 
+              final required = clazz.writtenTestRequired;
+              final threshold = required ? (clazz.passingScore ?? StudentCompletionService.safeDefaultWrittenPassingScore) : 0;
+
               return StreamBuilder<List<StudentRecord>>(
                 stream: services.scoreRepository.watchClassScores(clazz.id),
                 builder: (context, snap) {
@@ -152,39 +301,21 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                     return DatabaseErrorPanel(title: 'Scores could not be loaded', message: 'Please retry.', error: snap.error, onRetry: () {}, onOpenRecovery: null);
                   }
                   final students = snap.data ?? const [];
-                  final required = clazz.writtenTestRequired;
-                  final threshold = clazz.passingScore ?? 0;
+                  _reconcileFromDb(students);
 
                   return Stack(
                     children: [
                       ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+                        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 140),
                         itemCount: students.length,
                         separatorBuilder: (_, __) => const SizedBox(height: 10),
                         itemBuilder: (context, index) {
                           final s = students[index];
                           final controller = _controllerFor(s);
-                          final score = _parseScore(controller.text);
-                          final validation = _validateScore(score);
-                          String status;
-                          Color statusColor;
-
-                          if (!required) {
-                            status = 'N/A';
-                            statusColor = scheme.onSurface.withValues(alpha: 0.7);
-                          } else if (score == null) {
-                            status = 'INCOMPLETE';
-                            statusColor = scheme.onSurface.withValues(alpha: 0.75);
-                          } else if (!s.writtenTestingFinalized) {
-                            status = 'INCOMPLETE';
-                            statusColor = scheme.onSurface.withValues(alpha: 0.75);
-                          } else if (score >= threshold) {
-                            status = 'PASSED';
-                            statusColor = scheme.primary;
-                          } else {
-                            status = 'FAILED';
-                            statusColor = scheme.error;
-                          }
+                          final st = _stateFor(s);
+                          final status = _statusLabel(required: required, draftScore: st.draftScore, draftFinalized: st.draftFinalized, threshold: threshold);
+                          final statusColor = _statusColor(scheme, status);
 
                           return Container(
                             padding: const EdgeInsets.all(14),
@@ -208,21 +339,72 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                                     Expanded(
                                       child: TextField(
                                         controller: controller,
+                                        enabled: required,
                                         keyboardType: TextInputType.number,
+                                        textInputAction: index == students.length - 1 ? TextInputAction.done : TextInputAction.next,
+                                        onSubmitted: (_) => FocusScope.of(context).unfocus(),
                                         decoration: InputDecoration(
-                                          labelText: 'Score (0–100)',
-                                          errorText: validation,
+                                          labelText: required ? 'Score (0–100)' : 'Score (N/A)',
+                                          errorText: required ? st.validationError : null,
                                         ),
+                                        onChanged: (raw) {
+                                          final parsed = _parseScore(raw);
+                                          final err = required ? _validateScore(parsed) : null;
+                                          final valueChanged = parsed != st.originalScore;
+                                          final shouldUnfinalize = st.draftFinalized && (valueChanged || parsed == null);
+                                          setState(() {
+                                            _states[s.id] = st.copyWith(
+                                              rawDraft: raw,
+                                              draftScore: parsed,
+                                              draftFinalized: shouldUnfinalize ? false : st.draftFinalized,
+                                              validationError: err,
+                                              isDirty: true,
+                                              saveError: null,
+                                            );
+                                          });
+                                        },
                                       ),
                                     ),
                                     const SizedBox(width: 10),
                                     Column(
                                       children: [
                                         Switch(
-                                          value: s.writtenTestingFinalized,
-                                          onChanged: required && score != null
-                                              ? (v) => services.scoreRepository.markScoreFinalized(studentId: s.id, finalized: v)
-                                              : null,
+                                          value: st.draftFinalized,
+                                          onChanged: (!required)
+                                              ? null
+                                              : (v) async {
+                                                  final latest = _stateFor(s);
+                                                  if (latest.draftScore == null) {
+                                                    setState(() => _states[s.id] = latest.copyWith(validationError: 'Enter a score to finalize'));
+                                                    return;
+                                                  }
+                                                  final err = _validateScore(latest.draftScore);
+                                                  if (err != null) {
+                                                    setState(() => _states[s.id] = latest.copyWith(validationError: err));
+                                                    return;
+                                                  }
+
+                                                  setState(() => _states[s.id] = latest.copyWith(isSaving: true, saveError: null));
+                                                  try {
+                                                    await services.scoreRepository.saveScoreState(studentId: s.id, score: latest.draftScore, finalized: v);
+                                                    if (!mounted) return;
+                                                    setState(() {
+                                                      _states[s.id] = latest.copyWith(
+                                                        originalScore: latest.draftScore,
+                                                        draftScore: latest.draftScore,
+                                                        originalFinalized: v,
+                                                        draftFinalized: v,
+                                                        isDirty: false,
+                                                        isSaving: false,
+                                                        saveError: null,
+                                                      );
+                                                    });
+                                                  } catch (e, st2) {
+                                                    debugPrint('Finalize toggle save failed: $e\n$st2');
+                                                    if (!mounted) return;
+                                                    setState(() => _states[s.id] = latest.copyWith(isSaving: false, saveError: e));
+                                                  }
+                                                },
                                         ),
                                         Text('Finalized', style: Theme.of(context).textTheme.labelMedium),
                                       ],
@@ -233,21 +415,32 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                                 Align(
                                   alignment: Alignment.centerRight,
                                   child: TextButton.icon(
-                                    onPressed: () => _clearScoreWithConfirm(s),
+                                    onPressed: required ? () => _clearScoreWithConfirm(s) : null,
                                     icon: const Icon(Icons.delete_outline),
                                     label: const Text('Clear'),
                                   ),
                                 ),
+                                if (st.saveError != null) ...[
+                                  const SizedBox(height: 6),
+                                  Row(
+                                    children: [
+                                      Icon(Icons.sync_problem_outlined, color: scheme.error, size: 18),
+                                      const SizedBox(width: 8),
+                                      const Expanded(child: Text('This score could not be saved.')),
+                                      TextButton(onPressed: () => _clearScoreWithConfirm(s), child: const Text('Retry')),
+                                    ],
+                                  ),
+                                ],
                               ],
                             ),
                           );
                         },
                       ),
-                      if (_saveError != null)
+                      if (_saveAllError != null)
                         Positioned(
                           left: 16,
                           right: 16,
-                          bottom: 84,
+                          bottom: 92,
                           child: Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
@@ -277,7 +470,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                                 children: [
                                   Expanded(
                                     child: OutlinedButton.icon(
-                                      onPressed: required ? () => _markEnteredFinalized(clazz) : null,
+                                      onPressed: required ? () => _markEnteredFinalized(clazz, students) : null,
                                       icon: const Icon(Icons.verified_outlined),
                                       label: const Text('Mark Entered Scores Finalized'),
                                     ),
@@ -286,7 +479,7 @@ class _ScoreEntryScreenState extends State<ScoreEntryScreen> {
                               ),
                             ),
                             KeyboardSafeSaveBar(
-                              isSaving: _saving,
+                              isSaving: _savingAll,
                               saveLabel: 'Save All',
                               onSave: () => _saveAll(clazz, students),
                               isEnabled: true,

@@ -21,6 +21,12 @@ class StudentRepository {
     return (db.select(db.studentRecords)..where((t) => t.id.equals(id))).getSingleOrNull();
   }
 
+  Stream<StudentRecord?> watchById(String id) {
+    final db = _db;
+    if (db == null) return const Stream.empty();
+    return (db.select(db.studentRecords)..where((t) => t.id.equals(id))..limit(1)).watchSingleOrNull();
+  }
+
   Future<void> upsertStudent({required StudentRecordsCompanion companion}) async {
     final db = _db;
     if (db == null) throw StateError('StudentRepository is disabled');

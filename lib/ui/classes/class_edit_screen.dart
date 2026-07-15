@@ -239,7 +239,15 @@ class _ClassEditScreenState extends State<ClassEditScreen> {
                             SwitchListTile(
                               contentPadding: EdgeInsets.zero,
                               value: _writtenTestRequired,
-                              onChanged: (v) => setState(() => _writtenTestRequired = v),
+                              onChanged: (v) {
+                                setState(() {
+                                  _writtenTestRequired = v;
+                                  if (_writtenTestRequired) {
+                                    final t = _passingScore.text.trim();
+                                    if (t.isEmpty) _passingScore.text = '84';
+                                  }
+                                });
+                              },
                               title: const Text('Written Test Required'),
                             ),
                             const SizedBox(height: 6),
@@ -249,10 +257,20 @@ class _ClassEditScreenState extends State<ClassEditScreen> {
                               textInputAction: TextInputAction.next,
                               decoration: const InputDecoration(labelText: 'Passing Score'),
                               validator: (v) {
-                                if (v == null || v.trim().isEmpty) return null;
-                                final parsed = int.tryParse(v.trim());
+                                final raw = (v ?? '').trim();
+                                if (!_writtenTestRequired) {
+                                  if (raw.isEmpty) return null;
+                                  final parsed = int.tryParse(raw);
+                                  if (parsed == null) return 'Passing Score must be a number';
+                                  if (parsed < 1 || parsed > 100) return 'Passing Score should be 1–100';
+                                  return null;
+                                }
+
+                                // Required when written test is required.
+                                if (raw.isEmpty) return 'Passing Score is required';
+                                final parsed = int.tryParse(raw);
                                 if (parsed == null) return 'Passing Score must be a number';
-                                if (parsed < 0 || parsed > 100) return 'Passing Score should be 0–100';
+                                if (parsed < 1 || parsed > 100) return 'Passing Score should be 1–100';
                                 return null;
                               },
                             ),

@@ -10,6 +10,7 @@ class StudentCompletionResult {
     required this.missingRequirements,
     required this.failureReasons,
     required this.completionPercentage,
+    this.validationWarnings = const [],
   });
 
   final ChecklistStatus adultStatus;
@@ -23,6 +24,13 @@ class StudentCompletionResult {
 
   /// 0–100.
   final int completionPercentage;
+
+  /// Non-fatal data issues that can affect correctness.
+  ///
+  /// Example: A migrated class record where `writtenTestRequired` is true but
+  /// `passingScore` is missing. We apply a safe fallback but still surface a
+  /// warning.
+  final List<String> validationWarnings;
 
   bool get isAdultComplete => adultStatus == ChecklistStatus.passed;
   bool get isInfantChildComplete => infantChildStatus == ChecklistStatus.passed;

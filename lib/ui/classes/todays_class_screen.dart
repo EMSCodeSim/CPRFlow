@@ -1,10 +1,10 @@
 import 'package:cpr_instructor_doc/app/app_routes.dart';
 import 'package:cpr_instructor_doc/app/app_scope.dart';
+import 'package:cpr_instructor_doc/data/coordinators/todays_class_coordinator.dart';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
+import 'package:cpr_instructor_doc/domain/classes/todays_class_view_model.dart';
 import 'package:cpr_instructor_doc/domain/completion/completion_status.dart';
-import 'package:cpr_instructor_doc/domain/completion/student_completion_result.dart';
 import 'package:cpr_instructor_doc/ui/widgets/database_error_panel.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -19,6 +19,46 @@ class TodaysClassScreen extends StatefulWidget {
 
 class _TodaysClassScreenState extends State<TodaysClassScreen> {
   _RosterFilter _filter = _RosterFilter.all;
+  TodaysClassCoordinator? _coordinator;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_coordinator != null) return;
+
+    final services = AppScope.of(context);
+    final db = services.database;
+    if (db == null) return;
+    _coordinator = TodaysClassCoordinator(db: db, completionService: services.studentCompletionService)..startWatching();
+  }
+
+  @override
+  void dispose() {
+    _coordinator?.dispose();
+    super.dispose();
+  }
+
+  bool _matchesFilter(ClassRecord clazz, StudentProgressRow row) {
+    final r = row.completion;
+    switch (_filter) {
+      case _RosterFilter.all:
+        return true;
+      case _RosterFilter.missingAdult:
+        return r.adultStatus != ChecklistStatus.passed;
+      case _RosterFilter.missingInfant:
+        return r.infantChildStatus != ChecklistStatus.passed;
+      case _RosterFilter.missingCcf:
+        return clazz.ccfRequired && r.ccfStatus != RequirementStatus.passed;
+      case _RosterFilter.missingScore:
+        return clazz.writtenTestRequired && r.writtenTestStatus != RequirementStatus.passed;
+      case _RosterFilter.incomplete:
+        return r.overallResult == OverallStudentResult.incomplete || row.calculationError != null;
+      case _RosterFilter.failed:
+        return r.overallResult == OverallStudentResult.fail;
+      case _RosterFilter.passed:
+        return row.calculationError == null && r.overallResult == OverallStudentResult.pass;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -28,29 +68,33 @@ class _TodaysClassScreenState extends State<TodaysClassScreen> {
     if (!services.hasClassData) {
       return Scaffold(
         appBar: AppBar(title: const Text("Today's Class")),
-        body: const SafeArea(
-          child: Center(child: Text('Class data is disabled in recovery mode.')),
-        ),
+        body: const SafeArea(child: Center(child: Text('Class data is disabled in recovery mode.'))),
       );
+    }
+
+    final coordinator = _coordinator;
+    if (coordinator == null) {
+      return const Scaffold(body: SafeArea(child: Center(child: CircularProgressIndicator())));
     }
 
     return Scaffold(
       appBar: AppBar(title: const Text("Today's Class")),
       body: SafeArea(
-        child: StreamBuilder<ClassRecord?>(
-          stream: services.classRepository.watchActiveClass(),
-          builder: (context, classSnap) {
-            if (classSnap.hasError) {
+        child: StreamBuilder<TodaysClassViewModel?>(
+          stream: coordinator.stream,
+          builder: (context, snap) {
+            if (snap.hasError) {
               return DatabaseErrorPanel(
-                title: 'Class could not be loaded',
+                title: 'Today\'s Class could not be loaded',
                 message: 'Please retry. If this persists, restart into recovery mode.',
-                error: classSnap.error,
-                onRetry: () => context.go(AppRoutes.today),
+                error: snap.error,
+                onRetry: () => coordinator.requestRecompute(),
                 onOpenRecovery: null,
               );
             }
-            final clazz = classSnap.data;
-            if (clazz == null) {
+
+            final vm = snap.data;
+            if (vm == null) {
               return Padding(
                 padding: const EdgeInsets.all(24),
                 child: Column(
@@ -68,70 +112,40 @@ class _TodaysClassScreenState extends State<TodaysClassScreen> {
               );
             }
 
+            final clazz = vm.classRecord;
+            final allRows = vm.students;
+            final filtered = allRows.where((r) => _matchesFilter(clazz, r)).toList(growable: false);
+
             return Column(
               children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: _ClassHeader(clazz: clazz),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                  child: _FilterChips(value: _filter, onChanged: (v) => setState(() => _filter = v)),
-                ),
+                Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0), child: _ClassHeader(clazz: clazz, totalStudents: vm.totalStudents)),
+                Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0), child: _SummaryCards(passed: vm.passedCount, incomplete: vm.incompleteCount, failed: vm.failedCount)),
+                Padding(padding: const EdgeInsets.fromLTRB(16, 12, 16, 0), child: _FilterChips(value: _filter, onChanged: (v) => setState(() => _filter = v))),
                 const SizedBox(height: 8),
                 Expanded(
-                  child: StreamBuilder<List<StudentRecord>>(
-                    stream: services.studentRepository.watchStudentsForClass(clazz.id),
-                    builder: (context, studentSnap) {
-                      if (studentSnap.hasError) {
-                        return DatabaseErrorPanel(
-                          title: 'Students could not be loaded',
-                          message: 'Please retry.',
-                          error: studentSnap.error,
-                          onRetry: () => context.go(AppRoutes.today),
-                          onOpenRecovery: null,
-                        );
-                      }
-                      final students = studentSnap.data ?? const [];
-                      if (students.isEmpty) {
-                        return Center(
-                          child: Text('No students yet.', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: scheme.onSurface.withValues(alpha: 0.7))),
-                        );
-                      }
-                      return ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
-                        itemCount: students.length + 1,
-                        separatorBuilder: (_, __) => const SizedBox(height: 10),
-                        itemBuilder: (context, index) {
-                          if (index == students.length) {
-                            return OutlinedButton.icon(
-                              onPressed: () => context.push(AppRoutes.studentAdd),
-                              icon: const Icon(Icons.person_add_alt_1_outlined),
-                              label: const Text('Add Student'),
-                            );
-                          }
-                          final s = students[index];
-                          return FutureBuilder<StudentCompletionResult>(
-                            future: services.studentCompletionService.computeForStudent(clazz: clazz, student: s),
-                            builder: (context, completionSnap) {
-                              if (completionSnap.hasError) {
-                                debugPrint('Completion calc failed: ${completionSnap.error}');
-                              }
-                              final completion = completionSnap.data;
-                              if (completion != null && !_matchesFilter(clazz, s, completion)) {
-                                return const SizedBox.shrink();
-                              }
-                              return _StudentRow(
-                                student: s,
-                                completion: completion,
-                                onTap: () => context.push('${AppRoutes.studentProgress}/${Uri.encodeComponent(s.id)}'),
+                  child: filtered.isEmpty
+                      ? Center(child: Text('No students match this filter', style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: scheme.onSurface.withValues(alpha: 0.7))))
+                      : ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 120),
+                          itemCount: filtered.length + 1,
+                          separatorBuilder: (_, __) => const SizedBox(height: 10),
+                          itemBuilder: (context, index) {
+                            if (index == filtered.length) {
+                              return OutlinedButton.icon(
+                                onPressed: () => context.push(AppRoutes.studentAdd),
+                                icon: const Icon(Icons.person_add_alt_1_outlined),
+                                label: const Text('Add Student'),
                               );
-                            },
-                          );
-                        },
-                      );
-                    },
-                  ),
+                            }
+                            final row = filtered[index];
+                            return _StudentProgressCard(
+                              clazz: clazz,
+                              row: row,
+                              onTap: () => context.push('${AppRoutes.studentProgress}/${Uri.encodeComponent(row.student.id)}'),
+                              onRetryCalc: coordinator.requestRecompute,
+                            );
+                          },
+                        ),
                 ),
               ],
             );
@@ -152,47 +166,14 @@ class _TodaysClassScreenState extends State<TodaysClassScreen> {
                 ),
               ),
               const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => context.push(AppRoutes.ccfTimer),
-                  icon: const Icon(Icons.timer_outlined),
-                  label: const Text('CCF'),
-                ),
-              ),
+              Expanded(child: OutlinedButton.icon(onPressed: () => context.push(AppRoutes.ccfTimer), icon: const Icon(Icons.timer_outlined), label: const Text('CCF'))),
               const SizedBox(width: 10),
-              Expanded(
-                child: OutlinedButton.icon(
-                  onPressed: () => context.push(AppRoutes.scores),
-                  icon: const Icon(Icons.score_outlined),
-                  label: const Text('Scores'),
-                ),
-              ),
+              Expanded(child: OutlinedButton.icon(onPressed: () => context.push(AppRoutes.scores), icon: const Icon(Icons.score_outlined), label: const Text('Scores'))),
             ],
           ),
         ),
       ),
     );
-  }
-
-  bool _matchesFilter(ClassRecord clazz, StudentRecord s, StudentCompletionResult r) {
-    switch (_filter) {
-      case _RosterFilter.all:
-        return true;
-      case _RosterFilter.missingAdult:
-        return r.adultStatus != ChecklistStatus.passed;
-      case _RosterFilter.missingInfant:
-        return r.infantChildStatus != ChecklistStatus.passed;
-      case _RosterFilter.missingCcf:
-        return clazz.ccfRequired && r.ccfStatus != RequirementStatus.passed;
-      case _RosterFilter.missingScore:
-        return clazz.writtenTestRequired && r.writtenTestStatus != RequirementStatus.passed;
-      case _RosterFilter.incomplete:
-        return r.overallResult == OverallStudentResult.incomplete;
-      case _RosterFilter.failed:
-        return r.overallResult == OverallStudentResult.fail;
-      case _RosterFilter.passed:
-        return r.overallResult == OverallStudentResult.pass;
-    }
   }
 
   Future<void> _openChecklistChooser(BuildContext context) async {
@@ -226,16 +207,8 @@ class _TodaysClassScreenState extends State<TodaysClassScreen> {
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            ListTile(
-                              leading: const Icon(Icons.checklist_outlined),
-                              title: const Text('Adult Checklist'),
-                              onTap: () => context.pop(ChecklistType.adult),
-                            ),
-                            ListTile(
-                              leading: const Icon(Icons.checklist_outlined),
-                              title: const Text('Infant/Child Checklist'),
-                              onTap: () => context.pop(ChecklistType.infantChild),
-                            ),
+                            ListTile(leading: const Icon(Icons.checklist_outlined), title: const Text('Adult Checklist'), onTap: () => context.pop(ChecklistType.adult)),
+                            ListTile(leading: const Icon(Icons.checklist_outlined), title: const Text('Infant/Child Checklist'), onTap: () => context.pop(ChecklistType.infantChild)),
                           ],
                         ),
                       ),
@@ -255,16 +228,19 @@ class _TodaysClassScreenState extends State<TodaysClassScreen> {
 }
 
 class _ClassHeader extends StatelessWidget {
-  const _ClassHeader({required this.clazz});
+  const _ClassHeader({required this.clazz, required this.totalStudents});
 
   final ClassRecord clazz;
+  final int totalStudents;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final loc = MaterialLocalizations.of(context);
     final date = clazz.classDate == null ? '—' : loc.formatMediumDate(clazz.classDate!);
-    final time = (clazz.startTime == null || clazz.endTime == null) ? '—' : '${loc.formatTimeOfDay(TimeOfDay.fromDateTime(clazz.startTime!))}–${loc.formatTimeOfDay(TimeOfDay.fromDateTime(clazz.endTime!))}';
+    final time = (clazz.startTime == null || clazz.endTime == null)
+        ? '—'
+        : '${loc.formatTimeOfDay(TimeOfDay.fromDateTime(clazz.startTime!))}–${loc.formatTimeOfDay(TimeOfDay.fromDateTime(clazz.endTime!))}';
 
     final rows = <String, String>{
       'Course': clazz.courseType == CourseType.blsProvider ? 'BLS Provider' : 'Course',
@@ -274,6 +250,7 @@ class _ClassHeader extends StatelessWidget {
       if ((clazz.leadInstructor ?? '').trim().isNotEmpty) 'Lead': clazz.leadInstructor!.trim(),
       if ((clazz.additionalInstructor ?? '').trim().isNotEmpty) 'Additional': clazz.additionalInstructor!.trim(),
       if ((clazz.trainingCenter ?? '').trim().isNotEmpty) 'Training Center': clazz.trainingCenter!.trim(),
+      'Students': '$totalStudents',
     };
 
     return Container(
@@ -294,7 +271,7 @@ class _ClassHeader extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 4),
               child: Row(
                 children: [
-                  SizedBox(width: 120, child: Text(e.key, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: scheme.onSurface.withValues(alpha: 0.7)))),
+                  SizedBox(width: 130, child: Text(e.key, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: scheme.onSurface.withValues(alpha: 0.7)))),
                   Expanded(child: Text(e.value, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600))),
                 ],
               ),
@@ -306,9 +283,60 @@ class _ClassHeader extends StatelessWidget {
   }
 }
 
+class _SummaryCards extends StatelessWidget {
+  const _SummaryCards({required this.passed, required this.incomplete, required this.failed});
+  final int passed;
+  final int incomplete;
+  final int failed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      children: [
+        Expanded(child: _SummaryCard(title: 'Passed', value: '$passed', icon: Icons.verified_outlined, scheme: scheme, tone: scheme.primary)),
+        const SizedBox(width: 10),
+        Expanded(child: _SummaryCard(title: 'Incomplete', value: '$incomplete', icon: Icons.more_horiz, scheme: scheme, tone: scheme.onSurface.withValues(alpha: 0.75))),
+        const SizedBox(width: 10),
+        Expanded(child: _SummaryCard(title: 'Failed', value: '$failed', icon: Icons.error_outline, scheme: scheme, tone: scheme.error)),
+      ],
+    );
+  }
+}
+
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({required this.title, required this.value, required this.icon, required this.scheme, required this.tone});
+  final String title;
+  final String value;
+  final IconData icon;
+  final ColorScheme scheme;
+  final Color tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: tone),
+          const SizedBox(height: 8),
+          Text(value, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+          const SizedBox(height: 2),
+          Text(title, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: scheme.onSurface.withValues(alpha: 0.75))),
+        ],
+      ),
+    );
+  }
+}
+
 class _FilterChips extends StatelessWidget {
   const _FilterChips({required this.value, required this.onChanged});
-
   final _RosterFilter value;
   final ValueChanged<_RosterFilter> onChanged;
 
@@ -332,11 +360,10 @@ class _FilterChips extends StatelessWidget {
   }
 
   Widget _chip(BuildContext context, _RosterFilter v, String label) {
-    final selected = v == value;
     return Padding(
       padding: const EdgeInsets.only(right: 10),
       child: ChoiceChip(
-        selected: selected,
+        selected: v == value,
         label: Padding(padding: const EdgeInsets.symmetric(horizontal: 6), child: Text(label, overflow: TextOverflow.ellipsis)),
         onSelected: (_) => onChanged(v),
       ),
@@ -344,53 +371,106 @@ class _FilterChips extends StatelessWidget {
   }
 }
 
-class _StudentRow extends StatelessWidget {
-  const _StudentRow({required this.student, required this.completion, required this.onTap});
-
-  final StudentRecord student;
-  final StudentCompletionResult? completion;
+class _StudentProgressCard extends StatelessWidget {
+  const _StudentProgressCard({required this.clazz, required this.row, required this.onTap, required this.onRetryCalc});
+  final ClassRecord clazz;
+  final StudentProgressRow row;
   final VoidCallback onTap;
+  final VoidCallback onRetryCalc;
+
+  String _overallLabel(OverallStudentResult r) {
+    switch (r) {
+      case OverallStudentResult.pass:
+        return 'PASS';
+      case OverallStudentResult.incomplete:
+        return 'INCOMPLETE';
+      case OverallStudentResult.fail:
+        return 'FAIL';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final c = completion;
-    String statusText;
-    Color statusColor;
-    if (c == null) {
-      statusText = 'Loading…';
-      statusColor = scheme.onSurface.withValues(alpha: 0.65);
+    final completion = row.completion;
+
+    final overall = row.calculationError != null ? 'INCOMPLETE' : _overallLabel(completion.overallResult);
+    final overallColor = overall == 'PASS'
+        ? scheme.primary
+        : (overall == 'FAIL' ? scheme.error : scheme.onSurface.withValues(alpha: 0.75));
+
+    String ccfLabel;
+    if (!clazz.ccfRequired) {
+      ccfLabel = completion.ccfStatus == RequirementStatus.notRequired ? 'N/A' : completion.ccfStatus.label;
     } else {
-      switch (c.overallResult) {
-        case OverallStudentResult.pass:
-          statusText = 'PASS';
-          statusColor = scheme.primary;
-          break;
-        case OverallStudentResult.incomplete:
-          statusText = 'INCOMPLETE';
-          statusColor = scheme.onSurface.withValues(alpha: 0.75);
-          break;
-        case OverallStudentResult.fail:
-          statusText = 'FAIL';
-          statusColor = scheme.error;
-          break;
-      }
+      ccfLabel = completion.ccfStatus.label;
     }
 
-    final scoreText = c == null
-        ? '—'
-        : (student.writtenTestScore == null
-            ? 'Not entered'
-            : '${student.writtenTestScore}${student.writtenTestingFinalized ? '' : ' (unfinalized)'}');
+    String writtenLabel;
+    if (!clazz.writtenTestRequired) {
+      writtenLabel = 'N/A';
+    } else {
+      writtenLabel = row.writtenScoreDisplay;
+    }
 
-    return ListTile(
+    return InkWell(
       onTap: onTap,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      tileColor: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-      leading: const Icon(Icons.person_outline),
-      title: Text(student.displayName),
-      subtitle: Text('Score: $scoreText'),
-      trailing: Text(statusText, style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900, color: statusColor)),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+          border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(child: Text(row.student.displayName, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900))),
+                Text(overall, style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w900, color: overallColor)),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _MiniStatusRow(label: 'Adult', value: completion.adultStatus.label),
+            _MiniStatusRow(label: 'Infant/Child', value: completion.infantChildStatus.label),
+            _MiniStatusRow(label: 'CCF', value: ccfLabel),
+            _MiniStatusRow(label: 'Written', value: writtenLabel),
+            if (row.calculationError != null) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Icon(Icons.warning_amber_outlined, color: scheme.error, size: 18),
+                  const SizedBox(width: 8),
+                  const Expanded(child: Text('Progress could not be calculated')),
+                  TextButton(onPressed: onRetryCalc, child: const Text('Retry')),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MiniStatusRow extends StatelessWidget {
+  const _MiniStatusRow({required this.label, required this.value});
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        children: [
+          SizedBox(width: 110, child: Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: scheme.onSurface.withValues(alpha: 0.7)))),
+          Expanded(child: Text(value, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700))),
+        ],
+      ),
     );
   }
 }

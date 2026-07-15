@@ -169,12 +169,39 @@ class CcfTimerController extends ChangeNotifier {
     if (state.phase == CcfTimerPhase.paused && _lastPausedAtMs != null) pauseMs += nowMs - _lastPausedAtMs!;
 
     if (clampToTarget) {
-      // Keep the ratio consistent but ensure totals never exceed elapsed.
-      final total = (compressionMs + pauseMs);
-      if (total > elapsedMs && total > 0) {
-        final scale = elapsedMs / total;
-        compressionMs = (compressionMs * scale).round();
-        pauseMs = elapsedMs - compressionMs;
+      // IMPORTANT (Phase 2 stabilization):
+      // When we auto-finish after passing the target duration, we must NOT
+      // proportionally rescale previously completed time.
+      //
+      // Instead:
+      //  - Clamp total elapsed time to the target.
+      //  - Preserve fully completed intervals.
+      //  - Remove overrun ONLY from the interval that was active when the
+      //    target was reached (running => compression, paused => pause).
+
+      final total = compressionMs + pauseMs;
+      if (total > elapsedMs) {
+        final overrun = total - elapsedMs;
+        final activePhase = state.phase;
+        if (activePhase == CcfTimerPhase.running) {
+          compressionMs = (compressionMs - overrun).clamp(0, compressionMs);
+        } else if (activePhase == CcfTimerPhase.paused) {
+          pauseMs = (pauseMs - overrun).clamp(0, pauseMs);
+        } else {
+          // Shouldn't happen (finish() is only called from running/paused),
+          // but keep totals consistent.
+          pauseMs = (pauseMs - overrun).clamp(0, pauseMs);
+        }
+
+        // Rounding/clock jitter guard: ensure compression + pause == elapsed.
+        final diff = elapsedMs - (compressionMs + pauseMs);
+        if (diff != 0) {
+          if (activePhase == CcfTimerPhase.running) {
+            compressionMs = (compressionMs + diff).clamp(0, elapsedMs);
+          } else {
+            pauseMs = (pauseMs + diff).clamp(0, elapsedMs);
+          }
+        }
       }
     }
 

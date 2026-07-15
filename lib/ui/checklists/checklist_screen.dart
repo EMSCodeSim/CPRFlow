@@ -4,6 +4,7 @@ import 'package:cpr_instructor_doc/app/app_scope.dart';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
 import 'package:cpr_instructor_doc/domain/checklists/checklist_definition.dart';
 import 'package:cpr_instructor_doc/domain/checklists/checklist_registry.dart';
+import 'package:cpr_instructor_doc/domain/checklists/checklist_notes_save_queue.dart';
 import 'package:cpr_instructor_doc/ui/checklists/checklist_image.dart';
 import 'package:cpr_instructor_doc/ui/widgets/keyboard_dismiss.dart';
 import 'package:cpr_instructor_doc/ui/widgets/database_error_panel.dart';
@@ -42,9 +43,8 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   ChecklistSaveState _resultSaveState = ChecklistSaveState.idle;
   ChecklistItemResultValue? _unsavedSelected;
 
-  ChecklistNotesSaveRequest? _pendingNotes;
+  late final ChecklistNotesSaveQueue _notesQueue;
   Object? _notesSaveError;
-  bool _notesSaving = false;
   Timer? _notesDebounce;
 
   @override
@@ -58,6 +58,13 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   void initState() {
     super.initState();
     _notesController = TextEditingController();
+
+    _notesQueue = ChecklistNotesSaveQueue(
+      saver: ({required attemptId, required itemId, required notes}) async {
+        final services = AppScope.of(context);
+        await services.checklistRepository.saveNotes(attemptId: attemptId, itemId: itemId, notes: notes);
+      },
+    );
   }
 
   @override
@@ -128,7 +135,8 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     final item = _definition.items[_index];
     final existing = await services.checklistRepository.getItemResult(attemptId: attemptId, itemId: item.id);
     if (!mounted) return;
-    _pendingNotes = null;
+    // Pending notes are per-item; switching items discards any queued notes for
+    // the previous item once flushed.
     setState(() {
       final existingValue = (existing?.result == ChecklistItemResultValue.notEvaluated) ? null : existing?.result;
       _selected = existingValue;
@@ -184,47 +192,31 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     final attemptId = _attemptId;
     if (attemptId == null) return;
     final itemId = _definition.items[_index].id;
-    _pendingNotes = ChecklistNotesSaveRequest(attemptId: attemptId, itemId: itemId, notes: text);
+    _notesQueue.enqueue(ChecklistNotesSaveRequest(attemptId: attemptId, itemId: itemId, notes: text));
     _notesDebounce = Timer(const Duration(milliseconds: 450), () {
-      final request = _pendingNotes;
-      if (request == null) return;
-      unawaited(_saveNotesRequest(request));
+      unawaited(_flushPendingNotes());
     });
   }
 
-  Future<void> _saveNotesRequest(ChecklistNotesSaveRequest request) async {
-    if (_notesSaving) return;
-    final services = AppScope.of(context);
-    _notesSaving = true;
-    if (mounted) setState(() => _notesSaveError = null);
-    try {
-      final trimmed = request.notes.trim();
-      await services.checklistRepository.saveNotes(attemptId: request.attemptId, itemId: request.itemId, notes: trimmed.isEmpty ? null : trimmed);
-
-      // Only clear the pending request if it matches what we just saved.
-      if (_pendingNotes?.isSameTargetAs(request) == true && _pendingNotes?.notes == request.notes) {
-        _pendingNotes = null;
-      }
-    } catch (e, st) {
-      debugPrint('Failed to save notes: $e\n$st');
-      if (!mounted) return;
-      setState(() => _notesSaveError = e);
-    } finally {
-      _notesSaving = false;
-    }
-  }
-
-  Future<void> _flushPendingNotes() async {
+  Future<bool> _flushPendingNotes() async {
     _notesDebounce?.cancel();
     _notesDebounce = null;
-    final request = _pendingNotes;
-    if (request == null) return;
-    await _saveNotesRequest(request);
+    try {
+      await _notesQueue.flush();
+    } catch (e, st) {
+      debugPrint('Notes flush failed: $e\n$st');
+    }
+    if (!mounted) return false;
+
+    final err = _notesQueue.lastError;
+    setState(() => _notesSaveError = err);
+    return err == null;
   }
 
   Future<void> _goPrevious() async {
     if (_index == 0) return;
-    await _flushPendingNotes();
+    final ok = await _flushPendingNotes();
+    if (!ok) return;
     if (!mounted) return;
     setState(() => _index -= 1);
     await _loadItemState();
@@ -232,7 +224,8 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
 
   Future<void> _goNext() async {
     if (_index >= _definition.items.length - 1) return;
-    await _flushPendingNotes();
+    final ok = await _flushPendingNotes();
+    if (!ok) return;
     if (!mounted) return;
     setState(() => _index += 1);
     await _loadItemState();
@@ -243,7 +236,8 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     final attemptId = _attemptId;
     if (attemptId == null) return;
 
-    await _flushPendingNotes();
+    final ok = await _flushPendingNotes();
+    if (!ok) return;
     if (!mounted) return;
 
     try {
@@ -312,12 +306,8 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   }
 
   Future<bool> _handleWillPop() async {
-    try {
-      await _flushPendingNotes();
-    } catch (_) {
-      // Don't block navigation; notes save errors are handled in-screen.
-    }
-    return true;
+    final ok = await _flushPendingNotes();
+    return ok;
   }
 
   @override
@@ -343,7 +333,8 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
           leading: IconButton(
             icon: const Icon(Icons.arrow_back),
             onPressed: () async {
-              await _flushPendingNotes();
+              final ok = await _flushPendingNotes();
+              if (!ok) return;
               if (mounted) context.pop();
             },
           ),
@@ -505,7 +496,13 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
                             const SizedBox(width: 10),
                             const Expanded(child: Text('Notes not saved.')),
                             TextButton(
-                              onPressed: _pendingNotes == null ? null : () => _saveNotesRequest(_pendingNotes!),
+                              onPressed: _notesQueue.pending == null
+                                  ? null
+                                  : () async {
+                                      await _notesQueue.retry();
+                                      if (!mounted) return;
+                                      setState(() => _notesSaveError = _notesQueue.lastError);
+                                    },
                               child: const Text('Retry'),
                             ),
                           ],
@@ -531,15 +528,6 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
 }
 
 enum ChecklistSaveState { idle, saving, saved, failed }
-
-class ChecklistNotesSaveRequest {
-  const ChecklistNotesSaveRequest({required this.attemptId, required this.itemId, required this.notes});
-  final String attemptId;
-  final String itemId;
-  final String notes;
-
-  bool isSameTargetAs(ChecklistNotesSaveRequest other) => attemptId == other.attemptId && itemId == other.itemId;
-}
 
 /// Phone-safe, keyboard-safe bottom controls.
 class ChecklistBottomBar extends StatelessWidget {
