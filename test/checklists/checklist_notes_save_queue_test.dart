@@ -12,8 +12,16 @@ void main() {
       },
     );
 
-    queue.enqueue(const ChecklistNotesSaveRequest(attemptId: 'a', itemId: 'i', notes: 'first'));
-    queue.enqueue(const ChecklistNotesSaveRequest(attemptId: 'a', itemId: 'i', notes: 'second'));
+    queue.enqueue(const ChecklistNotesSaveRequest(
+      attemptId: 'a',
+      itemId: 'i',
+      notes: 'first',
+    ));
+    queue.enqueue(const ChecklistNotesSaveRequest(
+      attemptId: 'a',
+      itemId: 'i',
+      notes: 'second',
+    ));
     await queue.flush();
 
     expect(saved, ['a/i:second']);
@@ -30,18 +38,82 @@ void main() {
           first = false;
           await gate.future;
         }
-        saved.add('${notes ?? ''}');
+        saved.add(notes ?? '');
       },
     );
 
-    queue.enqueue(const ChecklistNotesSaveRequest(attemptId: 'a', itemId: 'i', notes: 'v1'));
-    // Allow drain to start.
+    queue.enqueue(const ChecklistNotesSaveRequest(
+      attemptId: 'a',
+      itemId: 'i',
+      notes: 'v1',
+    ));
     await Future<void>.delayed(const Duration(milliseconds: 1));
-    queue.enqueue(const ChecklistNotesSaveRequest(attemptId: 'a', itemId: 'i', notes: 'v2'));
+    queue.enqueue(const ChecklistNotesSaveRequest(
+      attemptId: 'a',
+      itemId: 'i',
+      notes: 'v2',
+    ));
     gate.complete();
     await queue.flush();
 
     expect(saved.last, 'v2');
+  });
+
+  test('Newer edit survives failure of older in-flight save', () async {
+    final gate = Completer<void>();
+    final saved = <String>[];
+    var calls = 0;
+
+    final queue = ChecklistNotesSaveQueue(
+      saver: ({required attemptId, required itemId, required notes}) async {
+        calls += 1;
+        if (calls == 1) {
+          await gate.future;
+          throw StateError('older request failed');
+        }
+        saved.add('$itemId:${notes ?? ''}');
+      },
+    );
+
+    queue.enqueue(const ChecklistNotesSaveRequest(
+      attemptId: 'a',
+      itemId: 'i',
+      notes: 'old',
+    ));
+    await Future<void>.delayed(const Duration(milliseconds: 1));
+    queue.enqueue(const ChecklistNotesSaveRequest(
+      attemptId: 'a',
+      itemId: 'i',
+      notes: 'newest',
+    ));
+    gate.complete();
+    await queue.flush();
+
+    expect(saved, ['i:newest']);
+    expect(queue.pending, isNull);
+  });
+
+  test('Different item targets remain independent', () async {
+    final saved = <String>[];
+    final queue = ChecklistNotesSaveQueue(
+      saver: ({required attemptId, required itemId, required notes}) async {
+        saved.add('$itemId:${notes ?? ''}');
+      },
+    );
+
+    queue.enqueue(const ChecklistNotesSaveRequest(
+      attemptId: 'a',
+      itemId: 'item-1',
+      notes: 'one',
+    ));
+    queue.enqueue(const ChecklistNotesSaveRequest(
+      attemptId: 'a',
+      itemId: 'item-2',
+      notes: 'two',
+    ));
+    await queue.flush();
+
+    expect(saved, containsAll(<String>['item-1:one', 'item-2:two']));
   });
 
   test('Save failure preserves request for retry', () async {
@@ -55,7 +127,11 @@ void main() {
       },
     );
 
-    queue.enqueue(const ChecklistNotesSaveRequest(attemptId: 'a', itemId: 'i', notes: 'v1'));
+    queue.enqueue(const ChecklistNotesSaveRequest(
+      attemptId: 'a',
+      itemId: 'i',
+      notes: 'v1',
+    ));
     await queue.flush();
     expect(queue.lastError, isNotNull);
     expect(queue.pending, isNotNull);
