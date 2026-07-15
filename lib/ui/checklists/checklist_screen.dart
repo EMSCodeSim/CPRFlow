@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cpr_instructor_doc/app/app_scope.dart';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
+import 'package:cpr_instructor_doc/data/repositories/checklist_repository.dart';
 import 'package:cpr_instructor_doc/domain/checklists/checklist_definition.dart';
 import 'package:cpr_instructor_doc/domain/checklists/checklist_registry.dart';
 import 'package:cpr_instructor_doc/domain/checklists/checklist_notes_save_queue.dart';
@@ -33,8 +34,6 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   ClassRecord? _clazz;
 
   int _index = 0;
-  late final PageController _pageController;
-  bool _handlingPageChange = false;
 
   ChecklistItemResultValue? _selected;
   String _notesDraft = '';
@@ -45,6 +44,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   ChecklistSaveState _resultSaveState = ChecklistSaveState.idle;
   ChecklistItemResultValue? _unsavedSelected;
 
+  late final ChecklistRepository _checklistRepository;
   late final ChecklistNotesSaveQueue _notesQueue;
   Object? _notesSaveError;
   Timer? _notesDebounce;
@@ -53,7 +53,6 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   void dispose() {
     _notesDebounce?.cancel();
     _notesController.dispose();
-    _pageController.dispose();
     super.dispose();
   }
 
@@ -61,14 +60,6 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   void initState() {
     super.initState();
     _notesController = TextEditingController();
-    _pageController = PageController();
-
-    _notesQueue = ChecklistNotesSaveQueue(
-      saver: ({required attemptId, required itemId, required notes}) async {
-        final services = AppScope.of(context);
-        await services.checklistRepository.saveNotes(attemptId: attemptId, itemId: itemId, notes: notes);
-      },
-    );
   }
 
   @override
@@ -76,6 +67,15 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     super.didChangeDependencies();
     if (!_didStartInitialLoad) {
       _didStartInitialLoad = true;
+      _checklistRepository = AppScope.of(context).checklistRepository;
+      _notesQueue = ChecklistNotesSaveQueue(
+        saver: ({required attemptId, required itemId, required notes}) =>
+            _checklistRepository.saveNotes(
+          attemptId: attemptId,
+          itemId: itemId,
+          notes: notes,
+        ),
+      );
       _load();
     }
   }
@@ -127,13 +127,6 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
         _loading = false;
       });
 
-      // Keep the swipe controller in sync with the first step we want to show.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        if (!_pageController.hasClients) return;
-        _pageController.jumpToPage(_index);
-      });
-
       await _loadItemState();
     } catch (e, st) {
       debugPrint('ChecklistScreen load failed: $e\n$st');
@@ -166,15 +159,15 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     });
   }
 
-  Future<bool> _saveSelection(ChecklistItemResultValue value) async {
+  Future<void> _saveSelection(ChecklistItemResultValue value) async {
     final services = AppScope.of(context);
     final attemptId = _attemptId;
-    if (attemptId == null) return false;
+    if (attemptId == null) return;
 
     // Flush any notes pending for this item first so item results + notes remain
     // consistent even when the instructor taps quickly.
     await _flushPendingNotes();
-    if (!mounted) return false;
+    if (!mounted) return;
 
     setState(() {
       _unsavedSelected = value;
@@ -186,40 +179,21 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     try {
       final item = _definition.items[_index];
       await services.checklistRepository.saveItemResult(attemptId: attemptId, itemId: item.id, value: value);
-      if (!mounted) return false;
+      if (!mounted) return;
       setState(() {
         _saving = false;
         _resultSaveState = ChecklistSaveState.saved;
         _saveError = null;
       });
-      return true;
     } catch (e, st) {
       debugPrint('Failed to save item result: $e\n$st');
-      if (!mounted) return false;
+      if (!mounted) return;
       setState(() {
         _saving = false;
         _saveError = e;
         _resultSaveState = ChecklistSaveState.failed;
       });
-      return false;
     }
-  }
-
-  Future<void> _saveAndMaybeAdvance(ChecklistItemResultValue value) async {
-    final ok = await _saveSelection(value);
-    if (!ok || !mounted) return;
-    if (value != ChecklistItemResultValue.passed) return;
-
-    // Requirement: "Passed should move user to next screen".
-    // In Phase 2, the next “screen” is the next checklist step (and if last step,
-    // we finish the checklist and return).
-    if (_index >= _definition.items.length - 1) {
-      await _finish();
-      return;
-    }
-
-    FocusManager.instance.primaryFocus?.unfocus();
-    await _pageController.nextPage(duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
   }
 
   void _queueNotesSave(String text) {
@@ -249,28 +223,22 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     return err == null;
   }
 
-  Future<void> _handlePageChanged(int newIndex) async {
-    if (_handlingPageChange) return;
-    if (newIndex == _index) return;
-
-    _handlingPageChange = true;
-    final previousIndex = _index;
+  Future<void> _goPrevious() async {
+    if (_index == 0) return;
     final ok = await _flushPendingNotes();
+    if (!ok) return;
     if (!mounted) return;
-
-    if (!ok) {
-      // If notes can’t be flushed, bounce back to the prior step so we never
-      // silently drop edits.
-      if (_pageController.hasClients) {
-        _pageController.jumpToPage(previousIndex);
-      }
-      _handlingPageChange = false;
-      return;
-    }
-
-    setState(() => _index = newIndex);
+    setState(() => _index -= 1);
     await _loadItemState();
-    _handlingPageChange = false;
+  }
+
+  Future<void> _goNext() async {
+    if (_index >= _definition.items.length - 1) return;
+    final ok = await _flushPendingNotes();
+    if (!ok) return;
+    if (!mounted) return;
+    setState(() => _index += 1);
+    await _loadItemState();
   }
 
   Future<void> _finish() async {
@@ -402,6 +370,9 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
   }
 
   Widget _buildLoaded(BuildContext context, ColorScheme scheme) {
+    final item = _definition.items[_index];
+    final progressText = '${_index + 1} / ${_definition.items.length}';
+
     final size = MediaQuery.sizeOf(context);
     final imageHeight = (size.height * 0.28).clamp(240.0, 360.0).toDouble();
 
@@ -409,170 +380,157 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
       child: Column(
         children: [
           Expanded(
-            child: PageView.builder(
-              controller: _pageController,
-              itemCount: _definition.items.length,
-              onPageChanged: _handlePageChanged,
-              itemBuilder: (context, pageIndex) {
-                final item = _definition.items[pageIndex];
-                final isActive = pageIndex == _index;
-                final progressText = '${pageIndex + 1} / ${_definition.items.length}';
-
-                return SingleChildScrollView(
-                  keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(999),
-                              color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
-                              border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
-                            ),
-                            child: Text('Step $progressText', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
-                          ),
-                          const SizedBox(width: 10),
-                          if (item.required)
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(999),
-                                color: scheme.primaryContainer.withValues(alpha: 0.5),
-                                border: Border.all(color: scheme.primary.withValues(alpha: 0.16)),
-                              ),
-                              child: Text('Required', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
-                            )
-                          else
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(999),
-                                color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                                border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
-                              ),
-                              child: Text('Optional', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
-                            ),
-                          const Spacer(),
-                          Text('Swipe', style: Theme.of(context).textTheme.labelLarge?.copyWith(color: scheme.onSurface.withValues(alpha: 0.7))),
-                          const SizedBox(width: 6),
-                          Icon(Icons.swipe, size: 18, color: scheme.onSurface.withValues(alpha: 0.65)),
-                        ],
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(999),
+                          color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
+                          border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
+                        ),
+                        child: Text('Step $progressText', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
                       ),
-                      const SizedBox(height: 12),
-                      Text(item.title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 8),
-                      Text(item.instructorPrompt, style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5, color: scheme.onSurface.withValues(alpha: 0.82))),
-                      if ((item.optionalTeachingNote ?? '').trim().isNotEmpty) ...[
-                        const SizedBox(height: 10),
+                      const SizedBox(width: 10),
+                      if (item.required)
                         Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(14),
-                            color: scheme.secondaryContainer.withValues(alpha: 0.35),
-                            border: Border.all(color: scheme.secondary.withValues(alpha: 0.16)),
+                            borderRadius: BorderRadius.circular(999),
+                            color: scheme.primaryContainer.withValues(alpha: 0.5),
+                            border: Border.all(color: scheme.primary.withValues(alpha: 0.16)),
                           ),
-                          child: Text(item.optionalTeachingNote!, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
-                        ),
-                      ],
-                      const SizedBox(height: 12),
-                      SizedBox(height: imageHeight, width: double.infinity, child: ChecklistImage(assetPath: item.imageAssetPath, title: item.title)),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: FilledButton.icon(
-                              onPressed: (!isActive || _saving) ? null : () => _saveAndMaybeAdvance(ChecklistItemResultValue.passed),
-                              icon: const Icon(Icons.check_circle_outline),
-                              label: const Text('Passed'),
-                            ),
+                          child: Text('Required', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(999),
+                            color: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                            border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: (!isActive || _saving)
-                                  ? null
-                                  : () {
-                                      unawaited(_saveSelection(ChecklistItemResultValue.needsRemediation));
-                                    },
-                              icon: Icon(Icons.error_outline, color: scheme.error),
-                              label: Text('Needs Work', style: TextStyle(color: scheme.onSurface)),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        key: const Key('checklistNotesField'),
-                        controller: _notesController,
-                        enabled: isActive,
-                        onChanged: isActive ? _queueNotesSave : null,
-                        textInputAction: TextInputAction.done,
-                        onSubmitted: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          labelText: 'Notes',
-                          hintText: 'Optional notes for this skill…',
-                          filled: true,
-                          fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: scheme.outline.withValues(alpha: 0.16))),
-                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: scheme.outline.withValues(alpha: 0.16))),
-                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: scheme.primary.withValues(alpha: 0.7))),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ChecklistSaveStatusRow(
-                        selected: isActive ? _selected : null,
-                        unsavedSelected: isActive ? _unsavedSelected : null,
-                        state: isActive ? _resultSaveState : ChecklistSaveState.idle,
-                        error: isActive ? _saveError : null,
-                        onRetry: (!isActive || _unsavedSelected == null)
-                            ? null
-                            : () {
-                                unawaited(_saveSelection(_unsavedSelected!));
-                              },
-                      ),
-                      if (isActive && _notesSaveError != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 10),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(14),
-                              color: scheme.errorContainer.withValues(alpha: 0.35),
-                              border: Border.all(color: scheme.error.withValues(alpha: 0.22)),
-                            ),
-                            child: Row(
-                              children: [
-                                Icon(Icons.sync_problem_outlined, color: scheme.error),
-                                const SizedBox(width: 10),
-                                const Expanded(child: Text('Notes not saved.')),
-                                TextButton(
-                                  onPressed: _notesQueue.pending == null
-                                      ? null
-                                      : () async {
-                                          await _notesQueue.retry();
-                                          if (!mounted) return;
-                                          setState(() => _notesSaveError = _notesQueue.lastError);
-                                        },
-                                  child: const Text('Retry'),
-                                ),
-                              ],
-                            ),
-                          ),
+                          child: Text('Optional', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700)),
                         ),
                     ],
                   ),
-                );
-              },
+                  const SizedBox(height: 12),
+                  Text(item.title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 8),
+                  Text(item.instructorPrompt, style: Theme.of(context).textTheme.bodyMedium?.copyWith(height: 1.5, color: scheme.onSurface.withValues(alpha: 0.82))),
+                  if ((item.optionalTeachingNote ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(14),
+                        color: scheme.secondaryContainer.withValues(alpha: 0.35),
+                        border: Border.all(color: scheme.secondary.withValues(alpha: 0.16)),
+                      ),
+                      child: Text(item.optionalTeachingNote!, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: imageHeight,
+                    width: double.infinity,
+                    child: ChecklistImage(assetPath: item.imageAssetPath, title: item.title),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _saving ? null : () => _saveSelection(ChecklistItemResultValue.passed),
+                          icon: const Icon(Icons.check_circle_outline),
+                          label: const Text('Passed'),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: _saving ? null : () => _saveSelection(ChecklistItemResultValue.needsRemediation),
+                          icon: Icon(Icons.error_outline, color: scheme.error),
+                          label: Text('Needs Work', style: TextStyle(color: scheme.onSurface)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    key: const Key('checklistNotesField'),
+                    controller: _notesController,
+                    onChanged: _queueNotesSave,
+                    textInputAction: TextInputAction.done,
+                    onSubmitted: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      labelText: 'Notes',
+                      hintText: 'Optional notes for this skill…',
+                      filled: true,
+                      fillColor: scheme.surfaceContainerHighest.withValues(alpha: 0.35),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: scheme.outline.withValues(alpha: 0.16))),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: scheme.outline.withValues(alpha: 0.16))),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: scheme.primary.withValues(alpha: 0.7))),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ChecklistSaveStatusRow(
+                    selected: _selected,
+                    unsavedSelected: _unsavedSelected,
+                    state: _resultSaveState,
+                    error: _saveError,
+                    onRetry: _unsavedSelected == null ? null : () => _saveSelection(_unsavedSelected!),
+                  ),
+                  if (_notesSaveError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          color: scheme.errorContainer.withValues(alpha: 0.35),
+                          border: Border.all(color: scheme.error.withValues(alpha: 0.22)),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.sync_problem_outlined, color: scheme.error),
+                            const SizedBox(width: 10),
+                            const Expanded(child: Text('Notes not saved.')),
+                            TextButton(
+                              onPressed: _notesQueue.pending == null
+                                  ? null
+                                  : () async {
+                                      await _notesQueue.retry();
+                                      if (!mounted) return;
+                                      setState(() => _notesSaveError = _notesQueue.lastError);
+                                    },
+                              child: const Text('Retry'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
-          ChecklistBottomBar(isBusy: _saving, onFinish: _finish),
+          ChecklistBottomBar(
+            isBusy: _saving,
+            canGoPrevious: _index > 0,
+            canGoNext: _index < _definition.items.length - 1,
+            onPrevious: _goPrevious,
+            onNext: _goNext,
+            onFinish: _finish,
+          ),
         ],
       ),
     );
@@ -586,10 +544,18 @@ class ChecklistBottomBar extends StatelessWidget {
   const ChecklistBottomBar({
     super.key,
     required this.isBusy,
+    required this.canGoPrevious,
+    required this.canGoNext,
+    required this.onPrevious,
+    required this.onNext,
     required this.onFinish,
   });
 
   final bool isBusy;
+  final bool canGoPrevious;
+  final bool canGoNext;
+  final Future<void> Function() onPrevious;
+  final Future<void> Function() onNext;
   final Future<void> Function() onFinish;
 
   @override
@@ -608,16 +574,45 @@ class ChecklistBottomBar extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              if (keyboardOpen)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: OutlinedButton.icon(
-                    onPressed: () => FocusManager.instance.primaryFocus?.unfocus(),
-                    icon: const Icon(Icons.keyboard_hide_outlined),
-                    label: const Text('Hide keyboard'),
+              Row(
+                children: [
+                  if (keyboardOpen)
+                    OutlinedButton.icon(
+                      onPressed: () => FocusManager.instance.primaryFocus?.unfocus(),
+                      icon: const Icon(Icons.keyboard_hide_outlined),
+                      label: const Text('Hide'),
+                    ),
+                  if (keyboardOpen) const SizedBox(width: 10),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: (isBusy || !canGoPrevious) ? null : () async {
+                              FocusManager.instance.primaryFocus?.unfocus();
+                              await onPrevious();
+                            },
+                            icon: const Icon(Icons.chevron_left),
+                            label: const Text('Previous'),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: (isBusy || !canGoNext) ? null : () async {
+                              FocusManager.instance.primaryFocus?.unfocus();
+                              await onNext();
+                            },
+                            icon: const Icon(Icons.chevron_right),
+                            label: const Text('Next'),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              if (keyboardOpen) const SizedBox(height: 10),
+                ],
+              ),
+              const SizedBox(height: 10),
               SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
