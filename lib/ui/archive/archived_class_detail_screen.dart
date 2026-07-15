@@ -4,7 +4,7 @@ import 'package:cpr_instructor_doc/app/app_routes.dart';
 import 'package:cpr_instructor_doc/app/app_scope.dart';
 import 'package:cpr_instructor_doc/domain/archive/class_working_copy_service.dart';
 import 'package:cpr_instructor_doc/domain/finalization/final_snapshot_models.dart';
-import 'package:cpr_instructor_doc/domain/finalization/snapshot_checksum.dart';
+import 'package:cpr_instructor_doc/domain/finalization/snapshot_row_codec.dart';
 import 'package:cpr_instructor_doc/ui/routes/safe_error_screen.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -45,7 +45,7 @@ class ArchivedClassDetailScreen extends StatelessWidget {
             students: studentJson.cast<Map>().map((e) => FinalSnapshotStudentV1.fromJson(e.cast<String, Object?>())).toList(growable: false),
             totals: FinalSnapshotTotalsV1.fromJson(totalsJson.cast<String, Object?>()),
           );
-          integrityOk = SnapshotChecksum.sha256HexFromUtf8(snapshot.canonicalJson()) == row.checksum;
+          integrityOk = SnapshotRowCodec.validate(row);
         } catch (e, st) {
           debugPrint('Snapshot parse failed: $e\n$st');
         }
