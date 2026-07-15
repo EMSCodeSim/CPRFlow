@@ -1,0 +1,175 @@
+import 'package:cpr_instructor_doc/app/app_routes.dart';
+import 'package:cpr_instructor_doc/app/app_scope.dart';
+import 'package:cpr_instructor_doc/data/local/app_database.dart';
+import 'package:cpr_instructor_doc/ui/classes/class_edit_screen.dart';
+import 'package:cpr_instructor_doc/ui/classes/todays_class_screen.dart';
+import 'package:cpr_instructor_doc/ui/ccf/ccf_timer_screen.dart';
+import 'package:cpr_instructor_doc/ui/checklists/checklist_screen.dart';
+import 'package:cpr_instructor_doc/ui/home/home_screen.dart';
+import 'package:cpr_instructor_doc/ui/routes/safe_error_screen.dart';
+import 'package:cpr_instructor_doc/ui/routes/unknown_route_screen.dart';
+import 'package:cpr_instructor_doc/ui/scores/score_entry_screen.dart';
+import 'package:cpr_instructor_doc/ui/students/student_edit_screen.dart';
+import 'package:cpr_instructor_doc/ui/students/student_progress_screen.dart';
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+
+class AppRouter {
+  static GoRouter buildRouter({required bool hasClassData}) => GoRouter(
+    initialLocation: AppRoutes.home,
+    errorBuilder: (context, state) => UnknownRouteScreen(location: state.uri.toString()),
+    routes: [
+      GoRoute(
+        path: AppRoutes.home,
+        name: 'home',
+        pageBuilder: (context, state) => const NoTransitionPage(child: HomeScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.classEdit,
+        name: 'classEdit',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: UnknownRouteScreen(location: AppRoutes.classEdit));
+          }
+          final classId = state.uri.queryParameters['id'];
+          return MaterialPage(child: ClassEditScreen(classId: classId));
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.studentAdd,
+        name: 'studentAdd',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: UnknownRouteScreen(location: AppRoutes.studentAdd));
+          }
+          return const MaterialPage(child: StudentEditScreen(studentId: null));
+        },
+      ),
+      GoRoute(
+        path: '${AppRoutes.studentEdit}/:id',
+        name: 'studentEdit',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: UnknownRouteScreen(location: AppRoutes.studentEdit));
+          }
+          final id = state.pathParameters['id'];
+          return MaterialPage(child: StudentEditScreen(studentId: id));
+        },
+      ),
+
+      GoRoute(
+        path: AppRoutes.today,
+        name: 'today',
+        pageBuilder: (context, state) {
+          if (!hasClassData) return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Today\'s Class is unavailable in recovery mode.'));
+          return const MaterialPage(child: TodaysClassScreen());
+        },
+      ),
+      GoRoute(
+        path: '${AppRoutes.studentProgress}/:id',
+        name: 'studentProgress',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Student Progress is unavailable in recovery mode.'));
+          }
+          final id = state.pathParameters['id'];
+          if (id == null || id.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing student', message: 'No student ID provided.', onRetryLocation: AppRoutes.today));
+          }
+          return MaterialPage(child: StudentProgressScreen(studentId: id));
+        },
+      ),
+      GoRoute(
+        path: '${AppRoutes.checklist}/:studentId',
+        name: 'checklist',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Checklists are unavailable in recovery mode.'));
+          }
+          final studentId = state.pathParameters['studentId'];
+          final typeParam = state.uri.queryParameters['type'];
+          if (studentId == null || studentId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing student', message: 'No student ID provided.', onRetryLocation: AppRoutes.today));
+          }
+          final type = typeParam == 'infantChild' ? ChecklistType.infantChild : ChecklistType.adult;
+          return MaterialPage(child: ChecklistScreen(studentId: studentId, checklistType: type));
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.ccfTimer,
+        name: 'ccfTimer',
+        pageBuilder: (context, state) => const MaterialPage(child: CcfTimerScreen()),
+      ),
+      GoRoute(
+        path: '${AppRoutes.studentCcf}/:studentId',
+        name: 'studentCcf',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Student CCF is unavailable in recovery mode.'));
+          }
+          final studentId = state.pathParameters['studentId'];
+          if (studentId == null || studentId.isEmpty) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Missing student', message: 'No student ID provided.', onRetryLocation: AppRoutes.today));
+          }
+          // The screen itself will bind to the active class.
+          return MaterialPage(child: _StudentBoundCcfScreen(studentId: studentId));
+        },
+      ),
+      GoRoute(
+        path: AppRoutes.scores,
+        name: 'scores',
+        pageBuilder: (context, state) {
+          if (!hasClassData) {
+            return const NoTransitionPage(child: SafeErrorScreen(title: 'Class data disabled', message: 'Scores are unavailable in recovery mode.'));
+          }
+          return const MaterialPage(child: ScoreEntryScreen());
+        },
+      ),
+    ],
+    redirect: (context, state) {
+      // Defensive: if user deep-links into class/student routes while class data disabled.
+      if (!hasClassData) {
+        final loc = state.matchedLocation;
+        if (loc != AppRoutes.home) return AppRoutes.home;
+      }
+      return null;
+    },
+    observers: [
+      _RouteObserver(),
+    ],
+  );
+}
+
+class _RouteObserver extends NavigatorObserver {
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    // Ensures AppScope is referenced (keeps analyzer from complaining about unused import
+    // if routes are tree-shaken in tests).
+    super.didPush(route, previousRoute);
+  }
+}
+
+class _StudentBoundCcfScreen extends StatelessWidget {
+  const _StudentBoundCcfScreen({required this.studentId});
+  final String studentId;
+
+  @override
+  Widget build(BuildContext context) {
+    // We keep this widget in the router layer so we can convert “active class”
+    // into an explicit (classId, studentId) timer screen without extra routes.
+    final services = AppScope.of(context);
+    return FutureBuilder<ClassRecord?>(
+      future: services.classRepository.getActiveClass(),
+      builder: (context, snap) {
+        final active = snap.data;
+        if (snap.hasError) {
+          return const SafeErrorScreen(title: 'CCF could not be opened', message: 'Active class could not be loaded.', onRetryLocation: AppRoutes.today);
+        }
+        if (active == null) {
+          return const SafeErrorScreen(title: 'No active class', message: 'Return to Today\'s Class and try again.', onRetryLocation: AppRoutes.today);
+        }
+        return CcfTimerScreen(classId: active.id, studentId: studentId);
+      },
+    );
+  }
+}
