@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cpr_instructor_doc/app/app_scope.dart';
+import 'package:cpr_instructor_doc/app/app_services.dart';
 import 'package:cpr_instructor_doc/data/local/app_database.dart';
 import 'package:cpr_instructor_doc/domain/ccf/ccf_timer_controller.dart';
 import 'package:cpr_instructor_doc/domain/ccf/ccf_timer_state.dart';
@@ -8,6 +9,8 @@ import 'package:cpr_instructor_doc/ui/widgets/database_error_panel.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+
+enum _ExitDecision { retry, stay, discard }
 
 class CcfTimerScreen extends StatefulWidget {
   const CcfTimerScreen({super.key, this.classId, this.studentId});
@@ -19,11 +22,14 @@ class CcfTimerScreen extends StatefulWidget {
   State<CcfTimerScreen> createState() => _CcfTimerScreenState();
 }
 
-class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObserver, SingleTickerProviderStateMixin {
+class _CcfTimerScreenState extends State<CcfTimerScreen>
+    with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   late final CcfTimerController _controller;
   late final AnimationController _pulse;
   late final Animation<double> _pulseScale;
+  late final AppServices _services;
 
+  bool _didCaptureServices = false;
   int _bpm = 110;
 
   String? _sessionId;
@@ -31,8 +37,21 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
 
   CcfTimerPhase? _lastPhase;
   DateTime? _lastSnapshotAt;
-  bool _snapshotInFlight = false;
   Timer? _snapshotTimer;
+  Future<bool>? _snapshotSaveFuture;
+  Object? _snapshotSaveError;
+  bool _snapshotSavePending = false;
+  DateTime? _lastSuccessfulSnapshotAt;
+  bool _hasUnsavedTimerChanges = false;
+  bool _allowPop = false;
+
+  bool _loadingLinkedContext = false;
+  Object? _linkedContextError;
+  ClassRecord? _linkedClass;
+  StudentRecord? _linkedStudent;
+  List<CcfSession> _previousAttempts = const [];
+
+  bool get _isStudentLinked => widget.classId != null && widget.studentId != null;
 
   @override
   void initState() {
@@ -40,12 +59,35 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
     WidgetsBinding.instance.addObserver(this);
     _controller = CcfTimerController();
     _controller.addListener(_onTimerUpdate);
-    _pulse = AnimationController(vsync: this, duration: Duration(milliseconds: _msPerBeat(_bpm)));
+    _pulse = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: _msPerBeat(_bpm)),
+    );
     _pulseScale = TweenSequence<double>([
-      TweenSequenceItem(tween: Tween(begin: 0.85, end: 1.12).chain(CurveTween(curve: Curves.easeOutCubic)), weight: 35),
-      TweenSequenceItem(tween: Tween(begin: 1.12, end: 0.85).chain(CurveTween(curve: Curves.easeInCubic)), weight: 65),
+      TweenSequenceItem(
+        tween: Tween(begin: 0.85, end: 1.12)
+            .chain(CurveTween(curve: Curves.easeOutCubic)),
+        weight: 35,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.12, end: 0.85)
+            .chain(CurveTween(curve: Curves.easeInCubic)),
+        weight: 65,
+      ),
     ]).animate(_pulse);
     _pulse.repeat();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_didCaptureServices) return;
+    _didCaptureServices = true;
+    _services = AppScope.of(context);
+    if (_isStudentLinked) {
+      _loadingLinkedContext = true;
+      unawaited(_loadLinkedContext());
+    }
   }
 
   @override
@@ -64,8 +106,55 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
       _controller.refresh();
       return;
     }
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive || state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
       unawaited(_saveSnapshotNow(reason: 'lifecycle:$state'));
+    }
+  }
+
+  Future<void> _loadLinkedContext() async {
+    try {
+      if (!_services.hasClassData) {
+        throw StateError('Class data is unavailable');
+      }
+      final classId = widget.classId!;
+      final studentId = widget.studentId!;
+      final clazz = await _services.classRepository.getById(classId);
+      if (clazz == null) throw StateError('Class not found');
+      final student = await _services.studentRepository.getById(studentId);
+      if (student == null) throw StateError('Student not found');
+      if (student.classId != clazz.id) {
+        throw StateError('Student does not belong to this class');
+      }
+      final attempts = await _services.ccfRepository
+          .watchSessionsForStudent(studentId)
+          .first;
+      final finalized = attempts.where((session) => session.finalized).toList()
+        ..sort((a, b) {
+          final aDate = a.endedAt ?? a.startedAt;
+          final bDate = b.endedAt ?? b.startedAt;
+          return bDate.compareTo(aDate);
+        });
+
+      if (!mounted) return;
+      if (finalized.isNotEmpty && _controller.state.phase == CcfTimerPhase.idle) {
+        _controller.setPassingThreshold(finalized.first.passingThreshold);
+      }
+      setState(() {
+        _linkedClass = clazz;
+        _linkedStudent = student;
+        _previousAttempts = finalized;
+        _linkedContextError = null;
+        _loadingLinkedContext = false;
+      });
+    } catch (error, stackTrace) {
+      debugPrint('Failed to load linked CCF context: $error\n$stackTrace');
+      if (!mounted) return;
+      setState(() {
+        _linkedContextError = error;
+        _loadingLinkedContext = false;
+      });
     }
   }
 
@@ -75,9 +164,19 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
     final phase = _controller.state.phase;
     final last = _lastPhase;
     _lastPhase = phase;
+
+    if (_sessionId != null &&
+        _sessionId!.isNotEmpty &&
+        phase != CcfTimerPhase.idle) {
+      _hasUnsavedTimerChanges = true;
+    }
+
     if (last != phase) {
-      // Phase transitions are meaningful moments to persist.
-      if (phase == CcfTimerPhase.paused || phase == CcfTimerPhase.running) unawaited(_saveSnapshotNow(reason: 'phase:$phase'));
+      if (phase == CcfTimerPhase.paused ||
+          phase == CcfTimerPhase.running ||
+          phase == CcfTimerPhase.finished) {
+        unawaited(_saveSnapshotNow(reason: 'phase:$phase'));
+      }
     }
     setState(() {});
   }
@@ -89,52 +188,95 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
     if (_bpm == clamped) return;
     setState(() => _bpm = clamped);
     _pulse.duration = Duration(milliseconds: _msPerBeat(_bpm));
-    if (_pulse.isAnimating) _pulse
-      ..reset()
-      ..repeat();
+    if (_pulse.isAnimating) {
+      _pulse
+        ..reset()
+        ..repeat();
+    }
   }
 
   void _startSnapshotTicker() {
     _snapshotTimer?.cancel();
     _snapshotTimer = Timer.periodic(const Duration(seconds: 8), (_) {
       final phase = _controller.state.phase;
-      if (phase == CcfTimerPhase.running || phase == CcfTimerPhase.paused) unawaited(_saveSnapshotNow(reason: 'throttle'));
+      if (phase == CcfTimerPhase.running || phase == CcfTimerPhase.paused) {
+        unawaited(_saveSnapshotNow(reason: 'throttle'));
+      }
     });
   }
 
   Future<void> _ensureSessionCreated() async {
     if (_sessionId != null) return;
-    final services = AppScope.of(context);
-    if (!services.hasClassData) {
-      // Standalone timer works even without class data; saving is disabled.
-      _sessionId = ''; // sentinel
+    if (!_services.hasClassData) {
+      _sessionId = '';
       return;
     }
+    if (_isStudentLinked) {
+      if (_loadingLinkedContext) {
+        throw StateError('Student information is still loading');
+      }
+      if (_linkedContextError != null ||
+          _linkedClass == null ||
+          _linkedStudent == null) {
+        throw StateError('Student-linked CCF information is unavailable');
+      }
+    }
+
     try {
       final threshold = _controller.state.passingThreshold;
-      final session = (widget.studentId != null && widget.classId != null)
-          ? await services.ccfRepository.createStudentLinkedSession(classId: widget.classId!, studentId: widget.studentId!, passingThreshold: threshold)
-          : await services.ccfRepository.createStandaloneSession(passingThreshold: threshold);
+      final session = _isStudentLinked
+          ? await _services.ccfRepository.createStudentLinkedSession(
+              classId: widget.classId!,
+              studentId: widget.studentId!,
+              passingThreshold: threshold,
+            )
+          : await _services.ccfRepository.createStandaloneSession(
+              passingThreshold: threshold,
+            );
       _sessionId = session.id;
       _startSnapshotTicker();
-    } catch (e, st) {
-      debugPrint('Failed to create CCF session: $e\n$st');
-      _dbError = e;
-      setState(() {});
+      _hasUnsavedTimerChanges = false;
+    } catch (error, stackTrace) {
+      debugPrint('Failed to create CCF session: $error\n$stackTrace');
+      if (!mounted) return;
+      setState(() => _dbError = error);
     }
   }
 
-  Future<void> _saveSnapshotNow({required String reason}) async {
+  Future<bool> _saveSnapshotNow({required String reason}) async {
     final id = _sessionId;
-    if (id == null || id.isEmpty) return;
-    if (_snapshotInFlight) return;
-    final last = _lastSnapshotAt;
-    if (reason == 'throttle' && last != null && DateTime.now().difference(last) < const Duration(seconds: 6)) return;
+    if (id == null || id.isEmpty || !_services.hasClassData) return true;
 
-    _snapshotInFlight = true;
-    final services = AppScope.of(context);
+    final existing = _snapshotSaveFuture;
+    if (existing != null) return existing;
+
+    final last = _lastSnapshotAt;
+    if (reason == 'throttle' &&
+        last != null &&
+        DateTime.now().difference(last) < const Duration(seconds: 6)) {
+      return _snapshotSaveError == null;
+    }
+
+    final operation = _performSnapshotSave(id: id, reason: reason);
+    _snapshotSaveFuture = operation;
     try {
-      await services.ccfRepository.saveUnfinishedSession(
+      return await operation;
+    } finally {
+      if (identical(_snapshotSaveFuture, operation)) {
+        _snapshotSaveFuture = null;
+      }
+    }
+  }
+
+  Future<bool> _performSnapshotSave({
+    required String id,
+    required String reason,
+  }) async {
+    if (mounted) {
+      setState(() => _snapshotSavePending = true);
+    }
+    try {
+      await _services.ccfRepository.saveUnfinishedSession(
         sessionId: id,
         totalDurationMs: _controller.state.elapsed.inMilliseconds,
         compressionDurationMs: _controller.state.compression.inMilliseconds,
@@ -143,17 +285,26 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
         passingThreshold: _controller.state.passingThreshold,
       );
       _lastSnapshotAt = DateTime.now();
-    } catch (e, st) {
-      debugPrint('Failed to save CCF snapshot ($reason): $e\n$st');
+      _lastSuccessfulSnapshotAt = _lastSnapshotAt;
+      _snapshotSaveError = null;
+      _hasUnsavedTimerChanges = false;
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint('Failed to save CCF snapshot ($reason): $error\n$stackTrace');
+      _snapshotSaveError = error;
+      _hasUnsavedTimerChanges = true;
+      return false;
     } finally {
-      _snapshotInFlight = false;
+      _snapshotSavePending = false;
+      if (mounted) setState(() {});
     }
   }
 
   Future<void> _start() async {
     await _ensureSessionCreated();
-    if (_dbError != null) return;
+    if (_dbError != null || _linkedContextError != null) return;
     _controller.start();
+    _hasUnsavedTimerChanges = true;
     unawaited(_saveSnapshotNow(reason: 'start'));
   }
 
@@ -161,22 +312,38 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
     final confirm = await showModalBottomSheet<bool>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('Reset timer?', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+              Text(
+                'Reset timer?',
+                style: Theme.of(sheetContext)
+                    .textTheme
+                    .titleLarge
+                    ?.copyWith(fontWeight: FontWeight.w800),
+              ),
               const SizedBox(height: 8),
-              const Text('This will discard the current attempt unless you save it first.'),
+              const Text('This will discard the current unfinished attempt.'),
               const SizedBox(height: 14),
               Row(
                 children: [
-                  Expanded(child: OutlinedButton(onPressed: () => context.pop(false), child: const Text('Cancel'))),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => sheetContext.pop(false),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
                   const SizedBox(width: 10),
-                  Expanded(child: FilledButton(onPressed: () => context.pop(true), child: const Text('Reset'))),
+                  Expanded(
+                    child: FilledButton(
+                      onPressed: () => sheetContext.pop(true),
+                      child: const Text('Reset'),
+                    ),
+                  ),
                 ],
               ),
             ],
@@ -186,41 +353,73 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
     );
     if (confirm != true) return;
 
-    final id = _sessionId;
-    if (id != null && _controller.state.phase != CcfTimerPhase.finished) {
-      await _saveSnapshotNow(reason: 'before-reset');
-      try {
-        await AppScope.of(context).ccfRepository.deleteUnfinalizedSession(id);
-      } catch (_) {}
-    }
+    if (!await _discardUnfinalizedSession()) return;
     _sessionId = null;
+    _snapshotSaveError = null;
+    _hasUnsavedTimerChanges = false;
     _controller.reset();
+    if (mounted) setState(() {});
+  }
+
+  Future<bool> _discardUnfinalizedSession() async {
+    final id = _sessionId;
+    if (id == null || id.isEmpty || !_services.hasClassData) return true;
+    try {
+      await _services.ccfRepository.deleteUnfinalizedSession(id);
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint('Failed to discard unfinished CCF session: $error\n$stackTrace');
+      if (!mounted) return false;
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Discard failed'),
+          content: const Text(
+            'The unfinished session could not be removed. Please retry.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => dialogContext.pop(),
+              child: const Text('OK'),
+            ),
+          ],
+        ),
+      );
+      return false;
+    }
   }
 
   Future<bool> _finalizeAndSave() async {
     final id = _sessionId;
     if (id == null || id.isEmpty) return false;
     try {
-      final endedAt = DateTime.now();
-      await AppScope.of(context).ccfRepository.finalizeSession(
+      await _services.ccfRepository.finalizeSession(
         sessionId: id,
-        endedAt: endedAt,
+        endedAt: DateTime.now(),
         totalDurationMs: _controller.state.elapsed.inMilliseconds,
         compressionDurationMs: _controller.state.compression.inMilliseconds,
         pauseDurationMs: _controller.state.pause.inMilliseconds,
         ccfPercentage: _controller.state.ccfPercentage,
         passingThreshold: _controller.state.passingThreshold,
       );
+      _snapshotSaveError = null;
+      _snapshotSavePending = false;
+      _hasUnsavedTimerChanges = false;
       return true;
-    } catch (e, st) {
-      debugPrint('Failed to finalize CCF session: $e\n$st');
+    } catch (error, stackTrace) {
+      debugPrint('Failed to finalize CCF session: $error\n$stackTrace');
       if (!mounted) return false;
       await showDialog<void>(
         context: context,
-        builder: (context) => AlertDialog(
+        builder: (dialogContext) => AlertDialog(
           title: const Text('Save failed'),
           content: const Text('The session could not be saved. Please retry.'),
-          actions: [TextButton(onPressed: () => context.pop(), child: const Text('OK'))],
+          actions: [
+            TextButton(
+              onPressed: () => dialogContext.pop(),
+              child: const Text('OK'),
+            ),
+          ],
         ),
       );
       return false;
@@ -228,47 +427,165 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
   }
 
   Future<void> _assignToStudent() async {
-    final services = AppScope.of(context);
-    if (!services.hasClassData) return;
-    final active = await services.classRepository.getActiveClass();
+    if (!_services.hasClassData) return;
+    final active = await _services.classRepository.getActiveClass();
     if (active == null) return;
     final id = _sessionId;
     if (id == null || id.isEmpty) return;
 
-    final reloaded = await services.ccfRepository.getById(id);
+    final reloaded = await _services.ccfRepository.getById(id);
     if (reloaded == null) throw StateError('Saved session not found');
-    if (!reloaded.finalized) throw StateError('Session must be finalized before assignment');
+    if (!reloaded.finalized) {
+      throw StateError('Session must be finalized before assignment');
+    }
 
-    final students = await services.studentRepository.watchStudentsForClass(active.id).first;
+    final students =
+        await _services.studentRepository.watchStudentsForClass(active.id).first;
     if (!mounted) return;
     final chosen = await showModalBottomSheet<StudentRecord>(
       context: context,
       showDragHandle: true,
-      builder: (context) => SafeArea(
+      builder: (sheetContext) => SafeArea(
         child: ListView.builder(
           shrinkWrap: true,
           itemCount: students.length,
           itemBuilder: (context, index) {
-            final s = students[index];
+            final student = students[index];
             return ListTile(
-              title: Text(s.displayName),
+              title: Text(student.displayName),
               leading: const Icon(Icons.person_outline),
-              onTap: () => context.pop(s),
+              onTap: () => sheetContext.pop(student),
             );
           },
         ),
       ),
     );
     if (chosen == null) return;
-    await services.ccfRepository.assignSessionToStudent(sessionId: id, classId: active.id, studentId: chosen.id);
+    await _services.ccfRepository.assignSessionToStudent(
+      sessionId: id,
+      classId: active.id,
+      studentId: chosen.id,
+    );
     if (!mounted) return;
+    _allowPop = true;
+    context.pop();
+  }
+
+  Future<bool> _handleExitRequested() async {
+    if (_allowPop) return true;
+    final phase = _controller.state.phase;
+    final needsSave = _hasUnsavedTimerChanges ||
+        phase == CcfTimerPhase.running ||
+        phase == CcfTimerPhase.paused ||
+        phase == CcfTimerPhase.finished;
+    if (!needsSave || _sessionId == null || _sessionId!.isEmpty) return true;
+
+    if (await _saveSnapshotNow(reason: 'before-exit')) return true;
+
+    while (mounted) {
+      final decision = await showModalBottomSheet<_ExitDecision>(
+        context: context,
+        isDismissible: false,
+        enableDrag: false,
+        builder: (sheetContext) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Timer progress is not saved',
+                  style: Theme.of(sheetContext)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Retry saving, stay on the timer, or intentionally discard the unfinished attempt.',
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => sheetContext.pop(_ExitDecision.retry),
+                    icon: const Icon(Icons.sync),
+                    label: const Text('Retry Save'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => sheetContext.pop(_ExitDecision.stay),
+                    child: const Text('Stay on Timer'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton.icon(
+                    onPressed: () => sheetContext.pop(_ExitDecision.discard),
+                    icon: const Icon(Icons.delete_outline),
+                    label: const Text('Discard Unsaved Attempt'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      switch (decision) {
+        case _ExitDecision.retry:
+          if (await _saveSnapshotNow(reason: 'exit-retry')) return true;
+          continue;
+        case _ExitDecision.discard:
+          final confirm = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Discard unfinished attempt?'),
+              content: const Text(
+                'This removes only the current unfinalized CCF attempt. Finalized results are not affected.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => dialogContext.pop(false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () => dialogContext.pop(true),
+                  child: const Text('Discard'),
+                ),
+              ],
+            ),
+          );
+          if (confirm == true && await _discardUnfinalizedSession()) {
+            _sessionId = null;
+            _hasUnsavedTimerChanges = false;
+            return true;
+          }
+          continue;
+        case _ExitDecision.stay:
+        case null:
+          return false;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _requestBack() async {
+    if (!await _handleExitRequested()) return;
+    if (!mounted) return;
+    _allowPop = true;
     context.pop();
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final s = _controller.state;
+    final state = _controller.state;
 
     if (_dbError != null) {
       return Scaffold(
@@ -288,133 +605,438 @@ class _CcfTimerScreenState extends State<CcfTimerScreen> with WidgetsBindingObse
       );
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('CCF Timer'),
-        actions: [
-          IconButton(onPressed: _resetWithConfirm, tooltip: 'Reset', icon: const Icon(Icons.restart_alt)),
-        ],
-      ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _SummaryHeader(state: s),
-              const SizedBox(height: 14),
-              _MetricsGrid(state: s),
-              const SizedBox(height: 14),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
-                  border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
+    if (_isStudentLinked && _loadingLinkedContext) {
+      return const Scaffold(
+        body: SafeArea(child: Center(child: CircularProgressIndicator())),
+      );
+    }
+
+    if (_isStudentLinked && _linkedContextError != null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Student CCF')),
+        body: SafeArea(
+          child: DatabaseErrorPanel(
+            title: 'Student CCF could not be opened',
+            message: 'The student or class information could not be validated.',
+            error: _linkedContextError,
+            onRetry: () {
+              setState(() {
+                _loadingLinkedContext = true;
+                _linkedContextError = null;
+              });
+              unawaited(_loadLinkedContext());
+            },
+            onOpenRecovery: null,
+          ),
+        ),
+      );
+    }
+
+    return WillPopScope(
+      onWillPop: _handleExitRequested,
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            onPressed: _requestBack,
+            icon: const Icon(Icons.arrow_back),
+            tooltip: 'Back',
+          ),
+          title: Text(_isStudentLinked ? 'Student CCF Test' : 'CCF Timer'),
+          actions: [
+            IconButton(
+              onPressed: _resetWithConfirm,
+              tooltip: 'Reset',
+              icon: const Icon(Icons.restart_alt),
+            ),
+          ],
+        ),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (_isStudentLinked)
+                  _StudentCcfContextCard(
+                    clazz: _linkedClass!,
+                    student: _linkedStudent!,
+                    attempts: _previousAttempts,
+                  ),
+                if (_isStudentLinked) const SizedBox(height: 14),
+                _SummaryHeader(state: state),
+                const SizedBox(height: 14),
+                _MetricsGrid(state: state),
+                const SizedBox(height: 14),
+                _ThresholdPanel(
+                  threshold: state.passingThreshold,
+                  onChanged: (value) {
+                    _controller.setPassingThreshold(value);
+                    _hasUnsavedTimerChanges = true;
+                  },
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Passing threshold: ${s.passingThreshold.toStringAsFixed(0)}%', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-                    Slider(
-                      value: s.passingThreshold,
-                      min: 50,
-                      max: 100,
-                      divisions: 10,
-                      label: s.passingThreshold.toStringAsFixed(0),
-                      onChanged: (v) => setState(() => _controller.setPassingThreshold(v)),
-                    ),
-                  ],
+                const SizedBox(height: 14),
+                _MetronomePanel(
+                  pulse: _pulseScale,
+                  bpm: _bpm,
+                  onBpmChanged: _setBpm,
                 ),
-              ),
-              const SizedBox(height: 14),
-              _MetronomePanel(pulse: _pulseScale, bpm: _bpm, onBpmChanged: _setBpm),
-              const Spacer(),
-              if (s.phase != CcfTimerPhase.finished) _buildControls(context, s),
-              if (s.phase == CcfTimerPhase.finished) _buildFinishedActions(context, s),
-            ],
+                const SizedBox(height: 14),
+                if (_snapshotSavePending ||
+                    _snapshotSaveError != null ||
+                    _lastSuccessfulSnapshotAt != null)
+                  _SnapshotStatusCard(
+                    isPending: _snapshotSavePending,
+                    error: _snapshotSaveError,
+                    lastSavedAt: _lastSuccessfulSnapshotAt,
+                    onRetry: _snapshotSaveError == null
+                        ? null
+                        : () => _saveSnapshotNow(reason: 'manual-retry'),
+                  ),
+                if (_snapshotSavePending ||
+                    _snapshotSaveError != null ||
+                    _lastSuccessfulSnapshotAt != null)
+                  const SizedBox(height: 14),
+                if (state.phase != CcfTimerPhase.finished)
+                  _buildControls(context, state),
+                if (state.phase == CcfTimerPhase.finished)
+                  _buildFinishedActions(context, state),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildControls(BuildContext context, CcfTimerState s) {
-    return Row(
-      children: [
-        Expanded(
-          child: FilledButton.icon(
-            onPressed: s.phase == CcfTimerPhase.idle ? _start : (s.phase == CcfTimerPhase.running ? _controller.pause : _controller.resume),
-            icon: Icon(s.phase == CcfTimerPhase.running ? Icons.pause : Icons.play_arrow),
-            label: Text(s.phase == CcfTimerPhase.idle ? 'Start' : (s.phase == CcfTimerPhase.running ? 'Pause' : 'Resume')),
+  Widget _buildControls(BuildContext context, CcfTimerState state) {
+    final primaryLabel = state.phase == CcfTimerPhase.idle
+        ? (_isStudentLinked ? 'Start New Test' : 'Start')
+        : state.phase == CcfTimerPhase.running
+            ? 'Pause'
+            : 'Resume';
+    final primaryIcon =
+        state.phase == CcfTimerPhase.running ? Icons.pause : Icons.play_arrow;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow = constraints.maxWidth < 390;
+        final buttons = [
+          FilledButton.icon(
+            onPressed: state.phase == CcfTimerPhase.idle
+                ? _start
+                : state.phase == CcfTimerPhase.running
+                    ? _controller.pause
+                    : _controller.resume,
+            icon: Icon(primaryIcon),
+            label: Text(primaryLabel),
           ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: s.phase == CcfTimerPhase.idle ? null : _controller.finish,
+          OutlinedButton.icon(
+            onPressed:
+                state.phase == CcfTimerPhase.idle ? null : _controller.finish,
             icon: const Icon(Icons.flag_outlined),
             label: const Text('Finish'),
           ),
+        ];
+        if (narrow) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              buttons[0],
+              const SizedBox(height: 10),
+              buttons[1],
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: buttons[0]),
+            const SizedBox(width: 10),
+            Expanded(child: buttons[1]),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildFinishedActions(BuildContext context, CcfTimerState state) {
+    final hasDatabase = _services.hasClassData;
+    final canAssign = !_isStudentLinked && hasDatabase;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        FilledButton.icon(
+          onPressed: hasDatabase
+              ? () async {
+                  final saved = await _finalizeAndSave();
+                  if (!saved || !mounted) return;
+                  _allowPop = true;
+                  context.pop();
+                }
+              : () {
+                  _allowPop = true;
+                  context.pop();
+                },
+          icon: const Icon(Icons.save_outlined),
+          label: Text(
+            hasDatabase
+                ? (_isStudentLinked
+                    ? 'Save Student Result'
+                    : 'Save Standalone Result')
+                : 'Close (saving disabled)',
+          ),
+        ),
+        const SizedBox(height: 10),
+        OutlinedButton.icon(
+          onPressed: canAssign
+              ? () async {
+                  final saved = await _finalizeAndSave();
+                  if (!saved) return;
+                  await _assignToStudent();
+                }
+              : null,
+          icon: const Icon(Icons.assignment_ind_outlined),
+          label: Text(
+            canAssign
+                ? 'Assign to Student'
+                : 'Assign to Student (requires standalone result)',
+          ),
+        ),
+        const SizedBox(height: 10),
+        TextButton.icon(
+          onPressed: () async {
+            final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (dialogContext) => AlertDialog(
+                title: const Text('Discard result?'),
+                content: const Text(
+                  'This removes only the current unfinalized result.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => dialogContext.pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: () => dialogContext.pop(true),
+                    child: const Text('Discard'),
+                  ),
+                ],
+              ),
+            );
+            if (confirmed != true) return;
+            if (!await _discardUnfinalizedSession() || !mounted) return;
+            _allowPop = true;
+            context.pop();
+          },
+          icon: const Icon(Icons.delete_outline),
+          label: const Text('Discard Result'),
         ),
       ],
     );
   }
+}
 
-  Widget _buildFinishedActions(BuildContext context, CcfTimerState s) {
-    final hasDb = AppScope.of(context).hasClassData;
-    final canAssign = widget.studentId == null && hasDb;
-    final isStudentLinked = widget.studentId != null && widget.classId != null;
-    return Column(
-      children: [
-        SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: hasDb
-                ? () async {
-                    final ok = await _finalizeAndSave();
-                    if (!ok) return;
-                    if (mounted) context.pop();
-                  }
-                : () => context.pop(),
-            icon: const Icon(Icons.save_outlined),
-            label: Text(hasDb ? (isStudentLinked ? 'Save Student Result' : 'Save Standalone Result') : 'Close (saving disabled)'),
+class _StudentCcfContextCard extends StatelessWidget {
+  const _StudentCcfContextCard({
+    required this.clazz,
+    required this.student,
+    required this.attempts,
+  });
+
+  final ClassRecord clazz;
+  final StudentRecord student;
+  final List<CcfSession> attempts;
+
+  String _date(DateTime? value) {
+    if (value == null) return 'Not entered';
+    final local = value.toLocal();
+    return '${local.month}/${local.day}/${local.year}';
+  }
+
+  String _duration(int milliseconds) {
+    final duration = Duration(milliseconds: milliseconds);
+    final minutes = duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds = duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final latest = attempts.isEmpty ? null : attempts.first;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: scheme.secondaryContainer.withValues(alpha: 0.35),
+        border: Border.all(color: scheme.secondary.withValues(alpha: 0.16)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            student.displayName,
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w900),
           ),
+          const SizedBox(height: 4),
+          Text('${clazz.className} • ${_date(clazz.classDate)}'),
+          const SizedBox(height: 10),
+          if (latest == null)
+            const Text('No finalized CCF attempts yet.')
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Latest: ${latest.ccfPercentage.toStringAsFixed(1)}% • ${latest.result == CcfResultValue.passed ? 'Passed' : 'Failed'}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Text(_date(latest.endedAt ?? latest.startedAt)),
+              ],
+            ),
+          if (attempts.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: Text('Previous attempts (${attempts.length})'),
+              children: [
+                for (final attempt in attempts)
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: Text(
+                      '${attempt.ccfPercentage.toStringAsFixed(1)}% • ${attempt.result == CcfResultValue.passed ? 'Passed' : 'Failed'}',
+                    ),
+                    subtitle: Text(
+                      '${_date(attempt.endedAt ?? attempt.startedAt)} • Compressions ${_duration(attempt.compressionDurationMilliseconds)} • Pauses ${_duration(attempt.pauseDurationMilliseconds)}',
+                    ),
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SnapshotStatusCard extends StatelessWidget {
+  const _SnapshotStatusCard({
+    required this.isPending,
+    required this.error,
+    required this.lastSavedAt,
+    required this.onRetry,
+  });
+
+  final bool isPending;
+  final Object? error;
+  final DateTime? lastSavedAt;
+  final Future<bool> Function()? onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final hasError = error != null;
+    final background = hasError
+        ? scheme.errorContainer.withValues(alpha: 0.45)
+        : scheme.surfaceContainerHighest.withValues(alpha: 0.45);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: hasError
+              ? scheme.error.withValues(alpha: 0.25)
+              : scheme.outline.withValues(alpha: 0.14),
         ),
-        const SizedBox(height: 10),
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            onPressed: canAssign
-                ? () async {
-                    final ok = await _finalizeAndSave();
-                    if (!ok) return;
-                    await _assignToStudent();
-                  }
-                : null,
-            icon: const Icon(Icons.assignment_ind_outlined),
-            label: Text(canAssign ? 'Assign to Student' : 'Assign to Student (requires active class)'),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            hasError
+                ? Icons.sync_problem_outlined
+                : isPending
+                    ? Icons.sync
+                    : Icons.cloud_done_outlined,
+            color: hasError ? scheme.error : scheme.primary,
           ),
-        ),
-        const SizedBox(height: 10),
-        SizedBox(
-          width: double.infinity,
-          child: TextButton.icon(
-            onPressed: () async {
-              final id = _sessionId;
-              if (id != null && id.isNotEmpty) {
-                try {
-                  await AppScope.of(context).ccfRepository.deleteUnfinalizedSession(id);
-                } catch (_) {}
-              }
-              if (mounted) context.pop();
-            },
-            icon: const Icon(Icons.delete_outline),
-            label: const Text('Discard Result'),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              hasError
+                  ? 'Current timer progress has not been saved.'
+                  : isPending
+                      ? 'Saving timer progress…'
+                      : 'Progress saved${lastSavedAt == null ? '' : ' at ${_clockTime(lastSavedAt!)}'}.',
+            ),
           ),
-        ),
-      ],
+          if (hasError && onRetry != null)
+            TextButton(
+              onPressed: () => onRetry!(),
+              child: const Text('Retry Save'),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _clockTime(DateTime value) {
+    final local = value.toLocal();
+    final hour = local.hour == 0
+        ? 12
+        : local.hour > 12
+            ? local.hour - 12
+            : local.hour;
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '$hour:$minute ${local.hour >= 12 ? 'PM' : 'AM'}';
+  }
+}
+
+class _ThresholdPanel extends StatelessWidget {
+  const _ThresholdPanel({required this.threshold, required this.onChanged});
+
+  final double threshold;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Passing threshold: ${threshold.toStringAsFixed(0)}%',
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          Slider(
+            value: threshold,
+            min: 50,
+            max: 100,
+            divisions: 10,
+            label: threshold.toStringAsFixed(0),
+            onChanged: onChanged,
+          ),
+        ],
+      ),
     );
   }
 }
@@ -426,10 +1048,13 @@ class _SummaryHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final pct = state.ccfPercentage;
     final label = state.phase == CcfTimerPhase.finished
         ? (state.isPassing ? 'Passing' : 'Below threshold')
-        : (state.phase == CcfTimerPhase.running ? 'Running' : (state.phase == CcfTimerPhase.paused ? 'Paused' : 'Ready'));
+        : state.phase == CcfTimerPhase.running
+            ? 'Running'
+            : state.phase == CcfTimerPhase.paused
+                ? 'Paused'
+                : 'Ready';
 
     return Container(
       width: double.infinity,
@@ -445,9 +1070,20 @@ class _SummaryHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: Theme.of(context).textTheme.labelLarge?.copyWith(color: scheme.onSurface.withValues(alpha: 0.75))),
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: scheme.onSurface.withValues(alpha: 0.75),
+                      ),
+                ),
                 const SizedBox(height: 6),
-                Text('${pct.toStringAsFixed(1)}% CCF', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+                Text(
+                  '${state.ccfPercentage.toStringAsFixed(1)}% CCF',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w900),
+                ),
               ],
             ),
           ),
@@ -458,7 +1094,15 @@ class _SummaryHeader extends StatelessWidget {
               color: scheme.surfaceContainerHighest.withValues(alpha: 0.55),
               border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
             ),
-            child: Text(state.isPassing ? 'PASS' : 'IN PROGRESS', style: Theme.of(context).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w800)),
+            child: Text(
+              state.phase == CcfTimerPhase.finished
+                  ? (state.isPassing ? 'PASS' : 'FAIL')
+                  : 'IN PROGRESS',
+              style: Theme.of(context)
+                  .textTheme
+                  .labelLarge
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
           ),
         ],
       ),
@@ -470,29 +1114,64 @@ class _MetricsGrid extends StatelessWidget {
   const _MetricsGrid({required this.state});
   final CcfTimerState state;
 
-  String _fmt(Duration d) {
-    final m = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final s = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$m:$s';
+  String _format(Duration duration) {
+    final minutes =
+        duration.inMinutes.remainder(60).toString().padLeft(2, '0');
+    final seconds =
+        duration.inSeconds.remainder(60).toString().padLeft(2, '0');
+    return '$minutes:$seconds';
   }
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Expanded(child: _MetricCard(title: 'Elapsed', value: _fmt(state.elapsed), icon: Icons.timer_outlined, scheme: scheme)),
-        const SizedBox(width: 10),
-        Expanded(child: _MetricCard(title: 'Compression', value: _fmt(state.compression), icon: Icons.favorite_border, scheme: scheme)),
-        const SizedBox(width: 10),
-        Expanded(child: _MetricCard(title: 'Pause', value: _fmt(state.pause), icon: Icons.pause_circle_outline, scheme: scheme)),
-      ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final columns = constraints.maxWidth >= 620
+            ? 3
+            : constraints.maxWidth >= 330
+                ? 2
+                : 1;
+        final spacing = 10.0;
+        final width = (constraints.maxWidth - spacing * (columns - 1)) / columns;
+        final cards = [
+          _MetricCard(
+            title: 'Elapsed',
+            value: _format(state.elapsed),
+            icon: Icons.timer_outlined,
+            scheme: scheme,
+          ),
+          _MetricCard(
+            title: 'Compression',
+            value: _format(state.compression),
+            icon: Icons.favorite_border,
+            scheme: scheme,
+          ),
+          _MetricCard(
+            title: 'Pause',
+            value: _format(state.pause),
+            icon: Icons.pause_circle_outline,
+            scheme: scheme,
+          ),
+        ];
+        return Wrap(
+          spacing: spacing,
+          runSpacing: spacing,
+          children: [for (final card in cards) SizedBox(width: width, child: card)],
+        );
+      },
     );
   }
 }
 
 class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.title, required this.value, required this.icon, required this.scheme});
+  const _MetricCard({
+    required this.title,
+    required this.value,
+    required this.icon,
+    required this.scheme,
+  });
+
   final String title;
   final String value;
   final IconData icon;
@@ -512,9 +1191,20 @@ class _MetricCard extends StatelessWidget {
         children: [
           Icon(icon, color: scheme.primary),
           const SizedBox(height: 8),
-          Text(value, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900)),
+          Text(
+            value,
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.w900),
+          ),
           const SizedBox(height: 2),
-          Text(title, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: scheme.onSurface.withValues(alpha: 0.75))),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: scheme.onSurface.withValues(alpha: 0.75),
+                ),
+          ),
         ],
       ),
     );
@@ -522,7 +1212,12 @@ class _MetricCard extends StatelessWidget {
 }
 
 class _MetronomePanel extends StatelessWidget {
-  const _MetronomePanel({required this.pulse, required this.bpm, required this.onBpmChanged});
+  const _MetronomePanel({
+    required this.pulse,
+    required this.bpm,
+    required this.onBpmChanged,
+  });
+
   final Animation<double> pulse;
   final int bpm;
   final ValueChanged<int> onBpmChanged;
@@ -538,44 +1233,71 @@ class _MetronomePanel extends StatelessWidget {
         color: scheme.surfaceContainerHighest.withValues(alpha: 0.45),
         border: Border.all(color: scheme.outline.withValues(alpha: 0.14)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          AnimatedBuilder(
-            animation: pulse,
-            builder: (context, _) {
-              return Transform.scale(
-                scale: pulse.value,
-                child: Container(
-                  width: 34,
-                  height: 34,
-                  decoration: BoxDecoration(shape: BoxShape.circle, color: scheme.primary.withValues(alpha: 0.22), border: Border.all(color: scheme.primary.withValues(alpha: 0.5))),
+          Row(
+            children: [
+              AnimatedBuilder(
+                animation: pulse,
+                builder: (context, _) => Transform.scale(
+                  scale: pulse.value,
+                  child: Container(
+                    width: 34,
+                    height: 34,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: scheme.primary.withValues(alpha: 0.22),
+                      border: Border.all(
+                        color: scheme.primary.withValues(alpha: 0.5),
+                      ),
+                    ),
+                  ),
                 ),
-              );
-            },
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Visual metronome', style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                Text('Rate: $bpm BPM', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 6),
-                Slider(
-                  value: bpm.toDouble(),
-                  min: 100,
-                  max: 120,
-                  divisions: 20,
-                  label: bpm.toString(),
-                  onChanged: (v) => onBpmChanged(v.round()),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Visual metronome',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    Text(
+                      'Rate: $bpm BPM',
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ],
                 ),
-                Text('Metronome sound disabled until approved WAV is added.', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurface.withValues(alpha: 0.74))),
-              ],
-            ),
+              ),
+              const OutlinedButton.icon(
+                onPressed: null,
+                icon: Icon(Icons.volume_off_outlined),
+                label: Text('Audio'),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(onPressed: null, icon: const Icon(Icons.volume_off_outlined), label: const Text('Audio')),
+          Slider(
+            value: bpm.toDouble(),
+            min: 100,
+            max: 120,
+            divisions: 20,
+            label: bpm.toString(),
+            onChanged: (value) => onBpmChanged(value.round()),
+          ),
+          Text(
+            'Metronome sound disabled until an approved WAV is added.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: scheme.onSurface.withValues(alpha: 0.74),
+                ),
+          ),
         ],
       ),
     );
