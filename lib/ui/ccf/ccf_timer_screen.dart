@@ -1277,7 +1277,7 @@ class _MetronomePanel extends StatelessWidget {
                   ],
                 ),
               ),
-              const OutlinedButton.icon(
+              OutlinedButton.icon(
                 onPressed: null,
                 icon: Icon(Icons.volume_off_outlined),
                 label: Text('Audio'),
