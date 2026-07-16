@@ -30,10 +30,7 @@ class StartupCoordinator extends ChangeNotifier {
   AppServices? services;
   AppDatabase? _lastDatabase;
 
-  void _log(String message) {
-    if (!kDebugMode) return;
-    debugPrint('[startup] $message');
-  }
+  void _log(String message) => debugPrint('[startup] $message');
 
   Future<void> start() async {
     _log('phase=initializing');

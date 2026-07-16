@@ -28,6 +28,9 @@ class _StartupWidgetState extends State<StartupWidget> {
     super.initState();
     // Start immediately after first frame so the startup screen is visible.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      // This log is intentionally always-on: it helps diagnose “blank screen on boot”.
+      // ignore: avoid_print
+      debugPrint('[boot] first frame rendered, starting coordinator');
       widget.coordinator.start();
     });
   }
