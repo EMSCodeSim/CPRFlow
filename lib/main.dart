@@ -1,11 +1,14 @@
 import 'dart:async';
 import 'dart:ui';
 
-import 'package:cpr_instructor_doc/normal_startup.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
+/// ULTRA-MINIMAL BOOT (temporary)
+///
+/// This entrypoint intentionally bypasses everything app-specific (go_router,
+/// database init, coordinators, custom themes, etc.) to guarantee that Preview
+/// renders a basic screen.
 void main() {
   runZonedGuarded(() {
     WidgetsFlutterBinding.ensureInitialized();
@@ -25,12 +28,75 @@ void main() {
     ErrorWidget.builder = (FlutterErrorDetails details) =>
         _DiagnosticErrorWidget(details: details);
 
-    startNormalApp();
+    runApp(const _GuaranteedBootApp());
   }, (Object error, StackTrace stack) {
     debugPrint('ZONED ERROR: $error');
     debugPrintStack(stackTrace: stack);
     runApp(_BootstrapFailureApp(error: error, stack: stack));
   });
+}
+
+class _GuaranteedBootApp extends StatelessWidget {
+  const _GuaranteedBootApp();
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Boot Test',
+        theme: ThemeData(
+          useMaterial3: true,
+          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        ),
+        home: const _GuaranteedBootScreen(),
+      );
+}
+
+class _GuaranteedBootScreen extends StatelessWidget {
+  const _GuaranteedBootScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      backgroundColor: cs.surface,
+      body: SafeArea(
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 520),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_outline, size: 56, color: cs.primary),
+                  const SizedBox(height: 16),
+                  Text(
+                    'App is running',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context)
+                        .textTheme
+                        .headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    'This is a guaranteed minimal startup screen.\n'
+                    'If Preview is still blank, the issue is outside Flutter code\n'
+                    '(Preview target / browser debug attachment).',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: cs.onSurfaceVariant, height: 1.45),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _BootstrapFailureApp extends StatelessWidget {
@@ -85,9 +151,6 @@ class _ErrorDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final stackText = _shortStack(stack);
-    final copyText =
-        'ERROR TYPE: $errorType\n\nERROR MESSAGE: $message\n\nSTACK:\n$stackText';
-
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -106,13 +169,6 @@ class _ErrorDetails extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
-                ),
-                TextButton.icon(
-                  onPressed: () => Clipboard.setData(
-                    ClipboardData(text: copyText),
-                  ),
-                  icon: const Icon(Icons.copy, size: 18),
-                  label: const Text('Copy'),
                 ),
               ],
             ),
