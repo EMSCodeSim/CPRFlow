@@ -86,7 +86,7 @@ class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
         bytes = await x.readAsBytes();
         filename = x.name;
       } else {
-        final result = await FilePicker.pickFiles(withData: true, type: FileType.custom, allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg', 'heic', 'txt']);
+        final result = await FilePicker.platform.pickFiles(withData: true, type: FileType.custom, allowedExtensions: const ['pdf', 'png', 'jpg', 'jpeg', 'heic', 'txt']);
         if (result == null || result.files.isEmpty) return;
         final f = result.files.single;
         if (f.bytes == null) throw StateError('Selected file could not be read');
@@ -138,7 +138,7 @@ class _ClassDocumentsScreenState extends State<ClassDocumentsScreen> {
   Future<void> _importClassPackage() async {
     if (widget.readOnly) return;
     try {
-      final picked = await FilePicker.pickFiles(withData: true, type: FileType.custom, allowedExtensions: const ['zip']);
+      final picked = await FilePicker.platform.pickFiles(withData: true, type: FileType.custom, allowedExtensions: const ['zip']);
       if (picked == null || picked.files.isEmpty) return;
       final bytes = picked.files.single.bytes;
       if (bytes == null) throw StateError('Could not read ZIP');
