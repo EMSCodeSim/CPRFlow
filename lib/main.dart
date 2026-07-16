@@ -14,7 +14,7 @@ class MinimalApp extends StatelessWidget {
       home: Scaffold(
         body: Center(
           child: Text(
-            'CCF Timer startup test',
+            'CCF Timer Startup Test',
             textDirection: TextDirection.ltr,
           ),
         ),
