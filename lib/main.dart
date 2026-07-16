@@ -1,71 +1,146 @@
 import 'dart:async';
+import 'dart:ui';
 
-import 'package:cpr_instructor_doc/data/local/app_database.dart';
-import 'package:cpr_instructor_doc/startup/startup_coordinator.dart';
-import 'package:cpr_instructor_doc/startup/startup_widget.dart';
-import 'package:cpr_instructor_doc/theme.dart';
+import 'package:cpr_instructor_doc/normal_startup.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 void main() {
-  // Dreamflow's Web preview may initialize Flutter bindings in a different
-  // zone before calling our `main()`. Using runZonedGuarded can therefore
-  // trigger Flutter's "Zone mismatch" assertion during `runApp`.
-  //
-  // We still capture framework + async errors via the standard handlers.
-  WidgetsFlutterBinding.ensureInitialized();
+  runZonedGuarded(() {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  FlutterError.onError = (details) {
-    FlutterError.presentError(details);
-    debugPrint('FlutterError: ${details.exceptionAsString()}\n${details.stack}');
-  };
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+      debugPrint('FLUTTER ERROR: ${details.exceptionAsString()}');
+      debugPrintStack(stackTrace: details.stack);
+    };
 
-  ErrorWidget.builder = (details) {
-    final message = details.exceptionAsString();
-    debugPrint('Fatal widget build error: $message\n${details.stack}');
-    return Material(
-      color: const Color(0xFFFDF7F7),
-      child: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Icon(Icons.error_outline, size: 48, color: Colors.red),
-              const SizedBox(height: 16),
-              const Text(
-                'CCF Timer could not open this screen',
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Close and reopen the app. The technical message below identifies the exact failing widget.',
-              ),
-              const SizedBox(height: 16),
-              SelectableText(message),
-            ],
-          ),
-        ),
-      ),
-    );
-  };
+    PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+      debugPrint('PLATFORM ERROR: $error');
+      debugPrintStack(stackTrace: stack);
+      return true;
+    };
 
-  PlatformDispatcher.instance.onError = (error, stack) {
-    debugPrint('Uncaught async error: $error\n$stack');
-    return true;
-  };
+    ErrorWidget.builder = (FlutterErrorDetails details) =>
+        _DiagnosticErrorWidget(details: details);
 
-  final coordinator = StartupCoordinator(databaseFactory: AppDatabase.open);
-  runApp(CCFTimerApp(coordinator: coordinator));
+    startNormalApp();
+  }, (Object error, StackTrace stack) {
+    debugPrint('ZONED ERROR: $error');
+    debugPrintStack(stackTrace: stack);
+    runApp(_BootstrapFailureApp(error: error, stack: stack));
+  });
 }
 
-class CCFTimerApp extends StatelessWidget {
-  const CCFTimerApp({super.key, required this.coordinator});
+class _BootstrapFailureApp extends StatelessWidget {
+  const _BootstrapFailureApp({required this.error, required this.stack});
 
-  final StartupCoordinator coordinator;
+  final Object error;
+  final StackTrace stack;
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          body: _ErrorDetails(
+            title: 'App startup failed',
+            errorType: error.runtimeType.toString(),
+            message: error.toString(),
+            stack: stack,
+          ),
+        ),
+      );
+}
+
+class _DiagnosticErrorWidget extends StatelessWidget {
+  const _DiagnosticErrorWidget({required this.details});
+
+  final FlutterErrorDetails details;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        child: _ErrorDetails(
+          title: 'Screen failed to load',
+          errorType: details.exception.runtimeType.toString(),
+          message: details.exceptionAsString(),
+          stack: details.stack,
+        ),
+      );
+}
+
+class _ErrorDetails extends StatelessWidget {
+  const _ErrorDetails({
+    required this.title,
+    required this.errorType,
+    required this.message,
+    required this.stack,
+  });
+
+  final String title;
+  final String errorType;
+  final String message;
+  final StackTrace? stack;
 
   @override
   Widget build(BuildContext context) {
-    return StartupWidget(coordinator: coordinator, lightTheme: lightTheme, darkTheme: darkTheme);
+    final stackText = _shortStack(stack);
+    final copyText =
+        'ERROR TYPE: $errorType\n\nERROR MESSAGE: $message\n\nSTACK:\n$stackText';
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.red, size: 28),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => Clipboard.setData(
+                    ClipboardData(text: copyText),
+                  ),
+                  icon: const Icon(Icons.copy, size: 18),
+                  label: const Text('Copy'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Text('Type: $errorType'),
+            const SizedBox(height: 8),
+            const Text(
+              'Message:',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 6),
+            Expanded(
+              child: SingleChildScrollView(
+                child: SelectableText(
+                  '$message\n\nStack:\n$stackText',
+                  style: const TextStyle(fontFamily: 'monospace'),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _shortStack(StackTrace? stackTrace) {
+    if (stackTrace == null) return '(no stack trace)';
+    final lines = stackTrace.toString().trim().split('\n');
+    return lines.take(24).join('\n');
   }
 }
