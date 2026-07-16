@@ -1,281 +1,94 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
-import 'app/app_routes.dart';
+import 'app/app_router.dart';
+import 'services/preferences_service.dart';
 import 'theme.dart';
 
-void main() {
-  runApp(const LowRiskTestApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final preferences = await PreferencesService.create();
+  final launchCount = await preferences.incrementLaunchCount();
+  runApp(Stage5App(preferences: preferences, launchCount: launchCount));
 }
 
-class LowRiskTestApp extends StatefulWidget {
-  const LowRiskTestApp({super.key});
-
-  @override
-  State<LowRiskTestApp> createState() => _LowRiskTestAppState();
-}
-
-class _LowRiskTestAppState extends State<LowRiskTestApp> {
-  bool darkMode = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'CCF Timer Low-Risk Test',
-      theme: buildLightTheme(),
-      darkTheme: buildDarkTheme(),
-      themeMode: darkMode ? ThemeMode.dark : ThemeMode.light,
-      initialRoute: AppRoutes.home,
-      routes: {
-        AppRoutes.home: (_) => HomeScreen(
-              darkMode: darkMode,
-              onDarkModeChanged: (value) => setState(() => darkMode = value),
-            ),
-        AppRoutes.today: (_) => const LocalFormScreen(),
-        AppRoutes.ccfTimer: (_) => const LocalTimerScreen(),
-        AppRoutes.archive: (_) => const StaticArchiveScreen(),
-      },
-    );
-  }
-}
-
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({
-    required this.darkMode,
-    required this.onDarkModeChanged,
+class Stage5App extends StatefulWidget {
+  const Stage5App({
+    required this.preferences,
+    required this.launchCount,
     super.key,
   });
 
-  final bool darkMode;
-  final ValueChanged<bool> onDarkModeChanged;
+  final PreferencesService preferences;
+  final int launchCount;
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('CCF Timer'),
-        actions: [
-          Switch(value: darkMode, onChanged: onDarkModeChanged),
-        ],
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Image.asset(
-                  'assets/icons/dreamflow_icon.jpg',
-                  width: 88,
-                  height: 88,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, error, __) => Text('Asset error: $error'),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Low-risk restoration test',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Tests assets, named routes, forms, dialogs, local state, timers, and theme switching. No services or plugins are loaded.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.today),
-              icon: const Icon(Icons.groups_rounded),
-              label: const Text("Today's Class Form"),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.ccfTimer),
-              icon: const Icon(Icons.timer_rounded),
-              label: const Text('Local Timer'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.archive),
-              icon: const Icon(Icons.archive_outlined),
-              label: const Text('Static Archive'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => AlertDialog(
-                  title: const Text('Dialog works'),
-                  content: const Text('This is local Flutter UI only.'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
-                    ),
-                  ],
-                ),
-              ),
-              icon: const Icon(Icons.chat_bubble_outline),
-              label: const Text('Test Dialog'),
-            ),
-          ],
-        ),
-      ),
+  State<Stage5App> createState() => _Stage5AppState();
+}
+
+class _Stage5AppState extends State<Stage5App> {
+  late final AppController controller;
+  late final router = buildRouter(controller: controller);
+
+  @override
+  void initState() {
+    super.initState();
+    controller = AppController(
+      preferences: widget.preferences,
+      launchCount: widget.launchCount,
+      onChanged: () => setState(() {}),
     );
-  }
-}
-
-class LocalFormScreen extends StatefulWidget {
-  const LocalFormScreen({super.key});
-
-  @override
-  State<LocalFormScreen> createState() => _LocalFormScreenState();
-}
-
-class _LocalFormScreenState extends State<LocalFormScreen> {
-  final controller = TextEditingController();
-  final students = <String>[];
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  void addStudent() {
-    final name = controller.text.trim();
-    if (name.isEmpty) return;
-    setState(() {
-      students.add(name);
-      controller.clear();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Today's Class Form")),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'Student name',
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (_) => addStudent(),
-            ),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: addStudent, child: const Text('Add student')),
-            const SizedBox(height: 16),
-            Expanded(
-              child: students.isEmpty
-                  ? const Center(child: Text('No students added'))
-                  : ListView.builder(
-                      itemCount: students.length,
-                      itemBuilder: (_, index) => ListTile(
-                        leading: const Icon(Icons.person_outline),
-                        title: Text(students[index]),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () => setState(() => students.removeAt(index)),
-                        ),
-                      ),
-                    ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class LocalTimerScreen extends StatefulWidget {
-  const LocalTimerScreen({super.key});
-
-  @override
-  State<LocalTimerScreen> createState() => _LocalTimerScreenState();
-}
-
-class _LocalTimerScreenState extends State<LocalTimerScreen> {
-  Timer? timer;
-  int seconds = 0;
-  bool running = false;
-
-  void toggle() {
-    if (running) {
-      timer?.cancel();
-      setState(() => running = false);
-      return;
-    }
-    setState(() => running = true);
-    timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => seconds++);
-    });
   }
 
   @override
   void dispose() {
-    timer?.cancel();
+    router.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
-    final remaining = (seconds % 60).toString().padLeft(2, '0');
-    return Scaffold(
-      appBar: AppBar(title: const Text('Local Timer')),
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('$minutes:$remaining', style: Theme.of(context).textTheme.displayMedium),
-            const SizedBox(height: 24),
-            FilledButton(onPressed: toggle, child: Text(running ? 'Pause' : 'Start')),
-            TextButton(
-              onPressed: () {
-                timer?.cancel();
-                setState(() {
-                  running = false;
-                  seconds = 0;
-                });
-              },
-              child: const Text('Reset'),
-            ),
-          ],
-        ),
-      ),
+    return MaterialApp.router(
+      debugShowCheckedModeBanner: false,
+      title: 'CCF Timer Stage 5',
+      theme: buildLightTheme(),
+      darkTheme: buildDarkTheme(),
+      themeMode: controller.darkMode ? ThemeMode.dark : ThemeMode.light,
+      routerConfig: router,
     );
   }
 }
 
-class StaticArchiveScreen extends StatelessWidget {
-  const StaticArchiveScreen({super.key});
+class AppController {
+  AppController({
+    required this.preferences,
+    required this.launchCount,
+    required this.onChanged,
+  })  : darkMode = preferences.darkMode,
+        instructorName = preferences.instructorName;
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Static Archive')),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(20),
-        itemCount: 5,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, index) => Card(
-          child: ListTile(
-            leading: const CircleAvatar(child: Icon(Icons.school_outlined)),
-            title: Text('Sample class ${index + 1}'),
-            subtitle: const Text('Local display data only'),
-          ),
-        ),
-      ),
-    );
+  final PreferencesService preferences;
+  final VoidCallback onChanged;
+  int launchCount;
+  bool darkMode;
+  String instructorName;
+
+  Future<void> setDarkMode(bool value) async {
+    darkMode = value;
+    onChanged();
+    await preferences.setDarkMode(value);
+  }
+
+  Future<void> setInstructorName(String value) async {
+    instructorName = value;
+    onChanged();
+    await preferences.setInstructorName(value);
+  }
+
+  Future<void> clearSavedData() async {
+    await preferences.clearStage5Data();
+    darkMode = false;
+    instructorName = '';
+    launchCount = 0;
+    onChanged();
   }
 }
