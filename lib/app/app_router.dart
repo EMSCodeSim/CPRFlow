@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../screens.dart';
+import 'app_controller.dart';
 
 GoRouter buildRouter({required AppController controller}) {
   return GoRouter(
