@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:cpr_instructor_doc/app/app_routes.dart';
 import 'package:cpr_instructor_doc/app/app_scope.dart';
@@ -11,7 +11,6 @@ import 'package:cpr_instructor_doc/domain/reports/report_source.dart';
 import 'package:cpr_instructor_doc/ui/routes/safe_error_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 class AtlasExportReviewScreen extends StatefulWidget {
@@ -77,10 +76,13 @@ class _AtlasExportReviewScreenState extends State<AtlasExportReviewScreen> {
     setState(() => _sharing = true);
     try {
       final result = _exportService.export(data: data.report, template: data.template, readyOnly: readyOnly);
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/${result.filename}');
-      await file.writeAsString(result.csv, flush: true);
-      await Share.shareXFiles([XFile(file.path, mimeType: 'text/csv', name: result.filename)], subject: 'Atlas roster export');
+      final bytes = utf8.encode(result.csv);
+      final file = XFile.fromData(
+        bytes,
+        mimeType: 'text/csv',
+        name: result.filename,
+      );
+      await Share.shareXFiles([file], subject: 'Atlas roster export');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${result.exportedCount} students exported.')));
       }
