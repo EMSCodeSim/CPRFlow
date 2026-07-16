@@ -1,9 +1,9 @@
 {
-  "name": "CCF Timer",
-  "short_name": "CCF Timer",
+  "name": "CCF Timer Stage 5",
+  "short_name": "CCF Stage 5",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#FFFFFF",
   "theme_color": "#1565C0",
-  "description": "CCF Timer Stage 5 test"
+  "description": "GoRouter and SharedPreferences test"
 }
