@@ -1,7 +1,7 @@
 import 'package:drift/drift.dart';
 
 import 'package:cpr_instructor_doc/data/local/app_database_executor_io.dart'
-    if (dart.library.html) 'package:cpr_instructor_doc/data/local/app_database_executor_web.dart';
+    if (dart.library.js_interop) 'package:cpr_instructor_doc/data/local/app_database_executor_web.dart';
 
 /// Opens the platform-appropriate Drift [QueryExecutor].
 ///
