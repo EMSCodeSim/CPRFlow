@@ -27,15 +27,10 @@ class HomeScreen extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
-            Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Image.asset(
-                  'assets/icons/dreamflow_icon.jpg',
-                  width: 88,
-                  height: 88,
-                  fit: BoxFit.cover,
-                ),
+            const Center(
+              child: CircleAvatar(
+                radius: 44,
+                child: Icon(Icons.monitor_heart, size: 46),
               ),
             ),
             const SizedBox(height: 18),
