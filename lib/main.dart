@@ -15,14 +15,11 @@ void main() {
   // We still capture framework + async errors via the standard handlers.
   WidgetsFlutterBinding.ensureInitialized();
 
-  debugPrint('[boot] main() entered');
-
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
     debugPrint('FlutterError: ${details.exceptionAsString()}\n${details.stack}');
   };
 
-  // Ensure build-time exceptions render a visible UI instead of a blank screen.
   ErrorWidget.builder = (details) {
     final message = details.exceptionAsString();
     debugPrint('Fatal widget build error: $message\n${details.stack}');
@@ -36,13 +33,16 @@ void main() {
             children: [
               const Icon(Icons.error_outline, size: 48, color: Colors.red),
               const SizedBox(height: 16),
-              const Text('CCF Timer could not open this screen', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+              const Text(
+                'CCF Timer could not open this screen',
+                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 12),
-              const Text('Close and reopen the app. The technical message below identifies the exact failing widget.'),
+              const Text(
+                'Close and reopen the app. The technical message below identifies the exact failing widget.',
+              ),
               const SizedBox(height: 16),
               SelectableText(message),
-              const SizedBox(height: 12),
-              SelectableText(details.stack?.toString() ?? ''),
             ],
           ),
         ),
