@@ -57,6 +57,16 @@ class StartupCoordinator extends ChangeNotifier {
     } on TimeoutException catch (e, st) {
       _log('required_init_timeout');
       debugPrint('Startup timed out: $e');
+
+      if (kIsWeb) {
+        await _disposeFailedDatabase();
+        services = AppServices.withoutDatabase();
+        state = const StartupState.ready();
+        _log('phase=ready_web_without_class_data_after_timeout');
+        notifyListeners();
+        return;
+      }
+
       issues.add(
         StartupIssue(
           kind: StartupIssueKind.requiredInitTimedOut,
@@ -70,6 +80,22 @@ class StartupCoordinator extends ChangeNotifier {
     } catch (e, st) {
       _log('required_init_failed');
       debugPrint('Startup failed: $e\n$st');
+
+      // Dreamflow runs the project as a web preview. Drift's legacy web
+      // database depends on the sql.js runtime loaded by web/index.html. Some
+      // preview environments block that script or IndexedDB, which previously
+      // left the project showing only a generic runtime error. Keep native
+      // Android/iOS startup strict, but allow the web preview to open with the
+      // standalone CCF timer and other database-free screens.
+      if (kIsWeb) {
+        await _disposeFailedDatabase();
+        services = AppServices.withoutDatabase();
+        state = const StartupState.ready();
+        _log('phase=ready_web_without_class_data');
+        notifyListeners();
+        return;
+      }
+
       final kind = _lastDatabase == null ? StartupIssueKind.databaseOpenFailed : StartupIssueKind.databaseHealthCheckFailed;
       issues.add(
         StartupIssue(
