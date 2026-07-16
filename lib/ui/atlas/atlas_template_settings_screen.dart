@@ -31,7 +31,7 @@ class _AtlasTemplateSettingsScreenState extends State<AtlasTemplateSettingsScree
 
   Future<void> _import() async {
     try {
-      final result = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: const ['csv'], withData: true);
+      final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: const ['csv'], withData: true);
       if (result == null || result.files.isEmpty) return;
 
       final file = result.files.single;
