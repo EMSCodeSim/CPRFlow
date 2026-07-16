@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import 'main.dart';
+import 'app/app_controller.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({required this.controller, super.key});

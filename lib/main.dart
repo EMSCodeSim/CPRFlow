@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
 
+import 'app/app_controller.dart';
 import 'app/app_router.dart';
 import 'services/preferences_service.dart';
 import 'theme.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
   final preferences = await PreferencesService.create();
   final launchCount = await preferences.incrementLaunchCount();
-  runApp(Stage5App(preferences: preferences, launchCount: launchCount));
+
+  runApp(
+    Stage5App(
+      preferences: preferences,
+      launchCount: launchCount,
+    ),
+  );
 }
 
 class Stage5App extends StatefulWidget {
@@ -27,16 +35,23 @@ class Stage5App extends StatefulWidget {
 
 class _Stage5AppState extends State<Stage5App> {
   late final AppController controller;
-  late final router = buildRouter(controller: controller);
+  late final router;
 
   @override
   void initState() {
     super.initState();
+
     controller = AppController(
       preferences: widget.preferences,
       launchCount: widget.launchCount,
-      onChanged: () => setState(() {}),
+      onChanged: () {
+        if (mounted) {
+          setState(() {});
+        }
+      },
     );
+
+    router = buildRouter(controller: controller);
   }
 
   @override
@@ -55,40 +70,5 @@ class _Stage5AppState extends State<Stage5App> {
       themeMode: controller.darkMode ? ThemeMode.dark : ThemeMode.light,
       routerConfig: router,
     );
-  }
-}
-
-class AppController {
-  AppController({
-    required this.preferences,
-    required this.launchCount,
-    required this.onChanged,
-  })  : darkMode = preferences.darkMode,
-        instructorName = preferences.instructorName;
-
-  final PreferencesService preferences;
-  final VoidCallback onChanged;
-  int launchCount;
-  bool darkMode;
-  String instructorName;
-
-  Future<void> setDarkMode(bool value) async {
-    darkMode = value;
-    onChanged();
-    await preferences.setDarkMode(value);
-  }
-
-  Future<void> setInstructorName(String value) async {
-    instructorName = value;
-    onChanged();
-    await preferences.setInstructorName(value);
-  }
-
-  Future<void> clearSavedData() async {
-    await preferences.clearStage5Data();
-    darkMode = false;
-    instructorName = '';
-    launchCount = 0;
-    onChanged();
   }
 }
