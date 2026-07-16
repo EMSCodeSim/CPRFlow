@@ -1,0 +1,23 @@
+name: ccf_timer_stage5_high_risk_half
+
+description: Controlled GoRouter and SharedPreferences restoration test.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  go_router: 16.3.0
+  shared_preferences: 2.5.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icons/dreamflow_icon.jpg
