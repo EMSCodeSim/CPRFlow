@@ -6,7 +6,6 @@ import 'package:cpr_instructor_doc/startup/startup_state.dart';
 import 'package:cpr_instructor_doc/startup/startup_issue.dart';
 import 'package:cpr_instructor_doc/ui/routes/recovery_screen.dart';
 import 'package:cpr_instructor_doc/ui/routes/startup_screen.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -32,20 +31,9 @@ class _StartupWidgetState extends State<StartupWidget> {
   @override
   void initState() {
     super.initState();
-
-    // Dreamflow runs the project as a web app. The class database uses the
-    // browser sql.js/IndexedDB runtime, which can be blocked by the preview
-    // environment before Drift is able to return a useful exception. Skip that
-    // dependency entirely in web preview so the application always reaches its
-    // home screen. Android and iOS continue through the normal database startup.
-    if (kIsWeb) {
-      widget.coordinator.openWithoutClassData();
-      return;
-    }
-
     // Start immediately after first frame so the startup screen is visible.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.coordinator.start();
+      widget.coordinator.start();
     });
   }
 
