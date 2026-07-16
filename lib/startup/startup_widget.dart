@@ -1,10 +1,13 @@
 import 'package:cpr_instructor_doc/app/app_router.dart';
 import 'package:cpr_instructor_doc/app/app_scope.dart';
+import 'package:cpr_instructor_doc/app/app_services.dart';
 import 'package:cpr_instructor_doc/startup/startup_coordinator.dart';
 import 'package:cpr_instructor_doc/startup/startup_state.dart';
+import 'package:cpr_instructor_doc/startup/startup_issue.dart';
 import 'package:cpr_instructor_doc/ui/routes/recovery_screen.dart';
 import 'package:cpr_instructor_doc/ui/routes/startup_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 /// Root widget that:
@@ -23,16 +26,22 @@ class StartupWidget extends StatefulWidget {
 }
 
 class _StartupWidgetState extends State<StartupWidget> {
+  GoRouter? _router;
+  AppServices? _routerServices;
   @override
   void initState() {
     super.initState();
     // Start immediately after first frame so the startup screen is visible.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // This log is intentionally always-on: it helps diagnose “blank screen on boot”.
-      // ignore: avoid_print
-      debugPrint('[boot] first frame rendered, starting coordinator');
       widget.coordinator.start();
     });
+  }
+
+
+  @override
+  void dispose() {
+    _router?.dispose();
+    super.dispose();
   }
 
   @override
@@ -84,7 +93,33 @@ class _StartupWidgetState extends State<StartupWidget> {
             );
           }
 
-          final router = AppRouter.buildRouter(hasClassData: services.hasClassData);
+          try {
+            if (!identical(_routerServices, services) || _router == null) {
+              _router?.dispose();
+              _routerServices = services;
+              _router = AppRouter.buildRouter(hasClassData: services.hasClassData);
+            }
+          } catch (error, stackTrace) {
+            debugPrint('Router construction failed: $error\n$stackTrace');
+            return MaterialApp(
+              title: 'CCF Timer',
+              debugShowCheckedModeBanner: false,
+              theme: widget.lightTheme,
+              darkTheme: widget.darkTheme,
+              themeMode: ThemeMode.system,
+              home: RecoveryScreen(
+                issues: [
+                  StartupIssue(
+                    kind: StartupIssueKind.databaseHealthCheckFailed,
+                    message: 'Navigation could not be initialized: $error',
+                    stackTrace: stackTrace,
+                  ),
+                ],
+                onRetry: coordinator.retry,
+                onOpenWithoutClassData: coordinator.openWithoutClassData,
+              ),
+            );
+          }
           return AppScope(
             services: services,
             child: MaterialApp.router(
@@ -93,7 +128,7 @@ class _StartupWidgetState extends State<StartupWidget> {
               theme: widget.lightTheme,
               darkTheme: widget.darkTheme,
               themeMode: ThemeMode.system,
-              routerConfig: router,
+              routerConfig: _router!,
             ),
           );
         },
