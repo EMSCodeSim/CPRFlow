@@ -29,7 +29,7 @@ class _CcfEvaluationScreenState extends State<CcfEvaluationScreen> {
   final _fraction = TextEditingController();
   final _rate = TextEditingController();
   final _comments = TextEditingController();
-  bool _pausesMinimized = false;
+  _AssessmentRating _pausesAssessment = _AssessmentRating.notSelected;
   ChecklistDecision _decision = ChecklistDecision.notDecided;
 
   _AssessmentRating _compressionQuality = _AssessmentRating.notSelected;
@@ -49,7 +49,9 @@ class _CcfEvaluationScreenState extends State<CcfEvaluationScreen> {
     _compressionQuality = assessmentRatingFromStored(e.compressionQuality);
     _ventilationQuality = assessmentRatingFromStored(e.ventilationQuality);
     _comments.text = e.instructorComments;
-    _pausesMinimized = e.pausesMinimized;
+    _pausesAssessment = e.decision == ChecklistDecision.notDecided
+        ? _AssessmentRating.notSelected
+        : (e.pausesMinimized ? _AssessmentRating.meetsCriteria : _AssessmentRating.needsImprovement);
     _decision = e.decision;
   }
 
@@ -107,7 +109,7 @@ class _CcfEvaluationScreenState extends State<CcfEvaluationScreen> {
         rate != null ||
         _compressionQuality != _AssessmentRating.notSelected ||
         _ventilationQuality != _AssessmentRating.notSelected ||
-        _pausesMinimized ||
+        _pausesAssessment != _AssessmentRating.notSelected ||
         comments.isNotEmpty;
 
     if (_decision == ChecklistDecision.pass && !anyAssessmentEntered) {
@@ -116,17 +118,21 @@ class _CcfEvaluationScreenState extends State<CcfEvaluationScreen> {
     }
 
     // Required quality selections before final review.
-    if (_compressionQuality == _AssessmentRating.notSelected || _ventilationQuality == _AssessmentRating.notSelected) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Select compression and ventilation quality before saving.')));
+    if (_compressionQuality == _AssessmentRating.notSelected ||
+        _ventilationQuality == _AssessmentRating.notSelected ||
+        _pausesAssessment == _AssessmentRating.notSelected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select compression quality, ventilation quality, and pause assessment before saving.')),
+      );
       return;
     }
 
     final anyNeedsImprovement = _compressionQuality == _AssessmentRating.needsImprovement ||
         _ventilationQuality == _AssessmentRating.needsImprovement ||
-        !_pausesMinimized;
+        _pausesAssessment == _AssessmentRating.needsImprovement;
     final allMeet = _compressionQuality == _AssessmentRating.meetsCriteria &&
         _ventilationQuality == _AssessmentRating.meetsCriteria &&
-        _pausesMinimized;
+        _pausesAssessment == _AssessmentRating.meetsCriteria;
 
     if (_decision == ChecklistDecision.pass && anyNeedsImprovement && comments.isEmpty) {
       ScaffoldMessenger.of(context)
@@ -150,7 +156,7 @@ class _CcfEvaluationScreenState extends State<CcfEvaluationScreen> {
       compressionRate: rate,
       compressionQuality: _compressionQuality.storedValue,
       ventilationQuality: _ventilationQuality.storedValue,
-      pausesMinimized: _pausesMinimized,
+      pausesMinimized: _pausesAssessment == _AssessmentRating.meetsCriteria,
       instructorComments: comments,
       decision: _decision,
       createdAt: _student!.ccf.createdAt,
@@ -285,8 +291,7 @@ class _CcfEvaluationScreenState extends State<CcfEvaluationScreen> {
                               if (t.isEmpty) return null;
                               final n = int.tryParse(t);
                               if (n == null) return 'Enter a number';
-                              if (n <= 0) return 'Must be positive';
-                              if (n > 200) return 'Unrealistic rate';
+                              if (n < 40 || n > 200) return 'Use a realistic rate (40–200)';
                               return null;
                             },
                           ),
@@ -320,11 +325,19 @@ class _CcfEvaluationScreenState extends State<CcfEvaluationScreen> {
                       multiSelectionEnabled: false,
                     ),
                     const SizedBox(height: 12),
-                    SwitchListTile.adaptive(
-                      value: _pausesMinimized,
-                      onChanged: (v) => setState(() => _pausesMinimized = v),
-                      title: const Text('Pauses minimized'),
-                      contentPadding: EdgeInsets.zero,
+                    Text('Pauses minimized', style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 8),
+                    SegmentedButton<_AssessmentRating>(
+                      segments: const [
+                        ButtonSegment(value: _AssessmentRating.meetsCriteria, label: Text('Meets Criteria')),
+                        ButtonSegment(value: _AssessmentRating.needsImprovement, label: Text('Needs Improvement')),
+                      ],
+                      selected: {_pausesAssessment}.where((v) => v != _AssessmentRating.notSelected).toSet(),
+                      onSelectionChanged: (set) => setState(
+                        () => _pausesAssessment = set.isEmpty ? _AssessmentRating.notSelected : set.first,
+                      ),
+                      emptySelectionAllowed: true,
+                      multiSelectionEnabled: false,
                     ),
                     const SizedBox(height: 10),
                     TextFormField(

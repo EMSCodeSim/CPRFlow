@@ -6,6 +6,7 @@ import 'package:ccf_timer_low_risk_test/app/app_state_scope.dart';
 import 'package:ccf_timer_low_risk_test/app/models.dart';
 import 'package:ccf_timer_low_risk_test/screens/widgets/status_pill.dart';
 import 'package:ccf_timer_low_risk_test/screens/widgets/temporary_data_banner.dart';
+import 'package:ccf_timer_low_risk_test/screens/widgets/current_class_transition_dialog.dart';
 
 class ArchivedClassDetailScreen extends StatelessWidget {
   const ArchivedClassDetailScreen({required this.archivedId, super.key});
@@ -128,6 +129,9 @@ class ArchivedClassDetailScreen extends StatelessWidget {
       helpText: 'Select a new class date',
     );
     if (picked == null) return;
+
+    final canContinue = await prepareForNewClass(context: context, appState: appState);
+    if (!canContinue || !context.mounted) return;
 
     try {
       appState.createWorkingCopyFromArchive(archivedId: archivedId, classDate: picked);

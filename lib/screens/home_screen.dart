@@ -7,6 +7,7 @@ import 'package:ccf_timer_low_risk_test/app/restoration_prefs_controller.dart';
 import 'package:ccf_timer_low_risk_test/app/models.dart';
 import 'package:ccf_timer_low_risk_test/screens/widgets/status_pill.dart';
 import 'package:ccf_timer_low_risk_test/screens/widgets/temporary_data_banner.dart';
+import 'package:ccf_timer_low_risk_test/screens/widgets/current_class_transition_dialog.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({required this.prefsController, super.key});
@@ -105,7 +106,7 @@ class HomeScreen extends StatelessWidget {
                   child: OutlinedButton.icon(
                     onPressed: () => context.go('/timer'),
                     icon: const Icon(Icons.timer_rounded),
-                    label: const Text('CCF Timer'),
+                    label: const Text('Practice CCF Timer'),
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -131,72 +132,12 @@ class HomeScreen extends StatelessWidget {
   }
 
   Future<void> _startNewClassFlow({required BuildContext context, required AppState appState}) async {
-    final current = appState.currentClass;
-    if (current == null) {
-      context.go('/new-class');
-      return;
-    }
-
-    final selected = await showDialog<_NewClassChoice>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Start a new class?'),
-        content: const Text(
-          'A class is already active. During this restoration stage, current class, student, checklist, CCF, and score data is temporary and may reset when Preview restarts.\n\nChoose what to do with the current class before continuing.',
-        ),
-        actions: [
-          TextButton(onPressed: () => context.pop(_NewClassChoice.cancel), child: const Text('Cancel')),
-          TextButton.icon(
-            onPressed: () => context.pop(_NewClassChoice.archive),
-            icon: const Icon(Icons.archive_outlined),
-            label: const Text('Archive Current Class'),
-          ),
-          FilledButton.icon(
-            onPressed: () => context.pop(_NewClassChoice.discard),
-            icon: const Icon(Icons.delete_outline_rounded),
-            label: const Text('Discard & Continue'),
-          ),
-        ],
-      ),
-    );
-
-    if (selected == null || selected == _NewClassChoice.cancel) return;
-
-    if (selected == _NewClassChoice.archive) {
-      appState.archiveCurrentClass();
-      if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Current class archived (temporary).')));
-      context.go('/new-class');
-      return;
-    }
-
-    // Discard flow
-    final needsSecondConfirm = appState.currentClassHasStudentsOrEvaluations();
-    if (needsSecondConfirm) {
-      final confirm = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Discard current class data?'),
-          content: const Text(
-            'This class has students and/or evaluations. Discarding will permanently clear the active in-memory class, roster, and any entered evaluations for this restoration stage.',
-          ),
-          actions: [
-            TextButton(onPressed: () => context.pop(false), child: const Text('Cancel')),
-            FilledButton(onPressed: () => context.pop(true), child: const Text('Discard')),
-          ],
-        ),
-      );
-      if (confirm != true) return;
-    }
-
-    appState.discardCurrentClassAndData();
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Current class discarded (temporary).')));
+    final canContinue = await prepareForNewClass(context: context, appState: appState);
+    if (!canContinue || !context.mounted) return;
     context.go('/new-class');
   }
-}
 
-enum _NewClassChoice { cancel, archive, discard }
+}
 
 class _TodayClassCard extends StatelessWidget {
   const _TodayClassCard({required this.course, required this.summary});

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:ccf_timer_low_risk_test/app/app_state_scope.dart';
 import 'package:ccf_timer_low_risk_test/app/models.dart';
 import 'package:ccf_timer_low_risk_test/screens/widgets/temporary_data_banner.dart';
+import 'package:ccf_timer_low_risk_test/screens/widgets/current_class_transition_dialog.dart';
 
 class NewClassScreen extends StatefulWidget {
   const NewClassScreen({required this.defaultPrimaryInstructorName, super.key});
@@ -91,9 +92,11 @@ class _NewClassScreenState extends State<NewClassScreen> {
     });
   }
 
-  void _saveClass() {
+  Future<void> _saveClass() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     final appState = AppStateScope.of(context);
+    final canContinue = await prepareForNewClass(context: context, appState: appState);
+    if (!canContinue || !mounted) return;
     appState.createClass(
       courseType: _courseType,
       className: _className.text.trim(),

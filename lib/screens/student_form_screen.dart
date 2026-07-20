@@ -197,7 +197,7 @@ class _StudentFormScreenState extends State<StudentFormScreen> {
         ),
         bottomNavigationBar: SafeArea(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 12 + MediaQuery.viewInsetsOf(context).bottom),
             child: Row(
               children: [
                 Expanded(

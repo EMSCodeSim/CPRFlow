@@ -221,7 +221,7 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
                     SegmentedButton<ChecklistDecision>(
                       segments: const [
                         ButtonSegment(value: ChecklistDecision.pass, label: Text('Pass'), icon: Icon(Icons.check_circle_outline)),
-                        ButtonSegment(value: ChecklistDecision.needsReview, label: Text('Needs Review'), icon: Icon(Icons.error_outline)),
+                        ButtonSegment(value: ChecklistDecision.needsReview, label: Text('Needs Remediation'), icon: Icon(Icons.error_outline)),
                       ],
                       selected: {_decision}.where((d) => d != ChecklistDecision.notDecided).toSet(),
                       onSelectionChanged: (set) {
