@@ -7,6 +7,8 @@ environment:
   sdk: ">=3.6.0 <4.0.0"
 
 dependencies:
+  go_router: ^17.0.0
+  shared_preferences: ^2.0.0
   flutter:
     sdk: flutter
 
@@ -18,3 +20,5 @@ flutter:
   uses-material-design: true
   assets:
     - assets/icons/dreamflow_icon.jpg
+    - assets/bls/
+    - assets/bls/infant/

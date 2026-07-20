@@ -19,21 +19,25 @@ class PreferencesService {
       _preferences.getString(_instructorNameKey) ?? '';
   int get launchCount => _preferences.getInt(_launchCountKey) ?? 0;
 
-  Future<void> setDarkMode(bool value) =>
-      _preferences.setBool(_darkModeKey, value);
+  Future<bool> setDarkMode(bool value) => _preferences.setBool(_darkModeKey, value);
 
-  Future<void> setInstructorName(String value) =>
-      _preferences.setString(_instructorNameKey, value);
+  Future<bool> setInstructorName(String value) => _preferences.setString(_instructorNameKey, value);
+
+  /// Saves the raw launch count value.
+  ///
+  /// Returns `true` if the value was persisted successfully.
+  Future<bool> setLaunchCount(int value) => _preferences.setInt(_launchCountKey, value);
 
   Future<int> incrementLaunchCount() async {
     final next = launchCount + 1;
-    await _preferences.setInt(_launchCountKey, next);
+    await setLaunchCount(next);
     return next;
   }
 
-  Future<void> clearStage5Data() async {
-    await _preferences.remove(_darkModeKey);
-    await _preferences.remove(_instructorNameKey);
-    await _preferences.remove(_launchCountKey);
+  Future<bool> clearStage5Data() async {
+    final a = await _preferences.remove(_darkModeKey);
+    final b = await _preferences.remove(_instructorNameKey);
+    final c = await _preferences.remove(_launchCountKey);
+    return a && b && c;
   }
 }
