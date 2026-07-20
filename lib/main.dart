@@ -1,196 +1,203 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
-import 'app/app_routes.dart';
-import 'theme.dart';
+import 'package:ccf_timer_low_risk_test/app/app_state.dart';
+import 'package:ccf_timer_low_risk_test/app/app_state_scope.dart';
+import 'package:ccf_timer_low_risk_test/app/restoration_prefs_controller.dart';
+import 'package:ccf_timer_low_risk_test/services/preferences_service.dart';
+import 'package:ccf_timer_low_risk_test/screens/archive_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/archived_class_detail_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/ccf_evaluation_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/checklist_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/class_selection_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/home_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/image_viewer_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/new_class_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/reports_center_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/settings_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/student_detail_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/student_form_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/test_score_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/today_class_screen.dart';
+import 'package:ccf_timer_low_risk_test/screens/asset_test_screen.dart';
+import 'package:ccf_timer_low_risk_test/theme.dart';
+import 'package:ccf_timer_low_risk_test/routing/page_not_found_screen.dart';
 
-void main() {
-  runApp(const LowRiskTestApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  final boot = await _bootWithTimeout();
+  runApp(LowRiskTestApp(
+    initialDarkMode: boot.darkMode,
+    initialInstructorName: boot.instructorName,
+    initialLaunchCount: boot.launchCount,
+    showPrefsLoadError: boot.showPrefsLoadError,
+    preferencesService: boot.preferencesService,
+  ));
+}
+
+class _BootResult {
+  const _BootResult({
+    required this.darkMode,
+    required this.instructorName,
+    required this.launchCount,
+    required this.showPrefsLoadError,
+    required this.preferencesService,
+  });
+
+  final bool darkMode;
+  final String instructorName;
+  final int launchCount;
+  final bool showPrefsLoadError;
+  final PreferencesService? preferencesService;
+}
+
+Future<_BootResult> _bootWithTimeout() async {
+  try {
+    final service = await PreferencesService.create().timeout(const Duration(seconds: 4));
+    final nextLaunchCount = service.launchCount + 1;
+    final launchCountSaved = await service.setLaunchCount(nextLaunchCount);
+    return _BootResult(
+      darkMode: service.darkMode,
+      instructorName: service.instructorName,
+      launchCount: nextLaunchCount,
+      showPrefsLoadError: !launchCountSaved,
+      preferencesService: service,
+    );
+  } on TimeoutException catch (e) {
+    debugPrint('SharedPreferences init timed out: $e');
+  } catch (e) {
+    debugPrint('SharedPreferences init failed: $e');
+  }
+
+  return const _BootResult(
+    darkMode: false,
+    instructorName: '',
+    launchCount: 0,
+    showPrefsLoadError: true,
+    preferencesService: null,
+  );
 }
 
 class LowRiskTestApp extends StatefulWidget {
-  const LowRiskTestApp({super.key});
+  const LowRiskTestApp({
+    required this.initialDarkMode,
+    required this.initialInstructorName,
+    required this.initialLaunchCount,
+    required this.showPrefsLoadError,
+    required this.preferencesService,
+    super.key,
+  });
+
+  final bool initialDarkMode;
+  final String initialInstructorName;
+  final int initialLaunchCount;
+  final bool showPrefsLoadError;
+  final PreferencesService? preferencesService;
 
   @override
   State<LowRiskTestApp> createState() => _LowRiskTestAppState();
 }
 
 class _LowRiskTestAppState extends State<LowRiskTestApp> {
-  bool darkMode = false;
+  late final RestorationPrefsController controller;
+  late final AppState appState;
+  late final GoRouter _router;
 
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'CCF Timer Low-Risk Test',
-      theme: buildLightTheme(),
-      darkTheme: buildDarkTheme(),
-      themeMode: darkMode ? ThemeMode.dark : ThemeMode.light,
-      initialRoute: AppRoutes.home,
-      routes: {
-        AppRoutes.home: (_) => HomeScreen(
-              darkMode: darkMode,
-              onDarkModeChanged: (value) => setState(() => darkMode = value),
-            ),
-        AppRoutes.today: (_) => const LocalFormScreen(),
-        AppRoutes.ccfTimer: (_) => const LocalTimerScreen(),
-        AppRoutes.archive: (_) => const StaticArchiveScreen(),
-      },
+  void initState() {
+    super.initState();
+    controller = RestorationPrefsController(
+      preferencesService: widget.preferencesService,
+      darkMode: widget.initialDarkMode,
+      instructorName: widget.initialInstructorName,
+      launchCount: widget.initialLaunchCount,
+      showPrefsLoadError: widget.showPrefsLoadError,
     );
-  }
-}
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({
-    required this.darkMode,
-    required this.onDarkModeChanged,
-    super.key,
-  });
+    appState = AppState();
 
-  final bool darkMode;
-  final ValueChanged<bool> onDarkModeChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('CCF Timer'),
-        actions: [
-          Switch(value: darkMode, onChanged: onDarkModeChanged),
-        ],
-      ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Center(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: Image.asset(
-                  'assets/icons/dreamflow_icon.jpg',
-                  width: 88,
-                  height: 88,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, error, __) => Text('Asset error: $error'),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Low-risk restoration test',
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.headlineSmall,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Tests assets, named routes, forms, dialogs, local state, timers, and theme switching. No services or plugins are loaded.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.today),
-              icon: const Icon(Icons.groups_rounded),
-              label: const Text("Today's Class Form"),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.ccfTimer),
-              icon: const Icon(Icons.timer_rounded),
-              label: const Text('Local Timer'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.pushNamed(context, AppRoutes.archive),
-              icon: const Icon(Icons.archive_outlined),
-              label: const Text('Static Archive'),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: () => showDialog<void>(
-                context: context,
-                builder: (_) => AlertDialog(
-                  title: const Text('Dialog works'),
-                  content: const Text('This is local Flutter UI only.'),
-                  actions: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Close'),
-                    ),
-                  ],
-                ),
-              ),
-              icon: const Icon(Icons.chat_bubble_outline),
-              label: const Text('Test Dialog'),
-            ),
-          ],
+    _router = GoRouter(
+      initialLocation: '/',
+      routes: [
+        GoRoute(path: '/', name: 'home', builder: (context, state) => HomeScreen(prefsController: controller)),
+        GoRoute(path: '/classes', name: 'classes', builder: (context, state) => const ClassSelectionScreen()),
+        GoRoute(
+          path: '/new-class',
+          name: 'new-class',
+          builder: (context, state) => NewClassScreen(defaultPrimaryInstructorName: controller.instructorName),
         ),
+        GoRoute(path: '/today-class', name: 'today-class', builder: (context, state) => const TodayClassScreen()),
+        GoRoute(path: '/students/new', name: 'student-new', builder: (context, state) => const StudentFormScreen(studentId: 'new')),
+        GoRoute(
+          path: '/students/:studentId',
+          name: 'student-detail',
+          builder: (context, state) => StudentDetailScreen(studentId: state.pathParameters['studentId'] ?? ''),
+        ),
+        GoRoute(
+          path: '/students/:studentId/edit',
+          name: 'student-edit',
+          builder: (context, state) => StudentFormScreen(studentId: state.pathParameters['studentId'] ?? ''),
+        ),
+        GoRoute(
+          path: '/students/:studentId/adult-checklist',
+          name: 'adult-checklist',
+          builder: (context, state) => ChecklistScreen(studentId: state.pathParameters['studentId'] ?? '', kind: ChecklistKind.adult),
+        ),
+        GoRoute(
+          path: '/students/:studentId/infant-checklist',
+          name: 'infant-checklist',
+          builder: (context, state) => ChecklistScreen(studentId: state.pathParameters['studentId'] ?? '', kind: ChecklistKind.infant),
+        ),
+        GoRoute(
+          path: '/students/:studentId/ccf',
+          name: 'student-ccf',
+          builder: (context, state) => CcfEvaluationScreen(studentId: state.pathParameters['studentId'] ?? ''),
+        ),
+        GoRoute(
+          path: '/students/:studentId/test-score',
+          name: 'student-test-score',
+          builder: (context, state) => TestScoreScreen(studentId: state.pathParameters['studentId'] ?? ''),
+        ),
+        GoRoute(path: '/timer', name: 'timer', builder: (context, state) => const LocalTimerScreen()),
+        GoRoute(path: '/reports', name: 'reports', builder: (context, state) => const ReportsCenterScreen()),
+        GoRoute(path: '/archive', name: 'archive', builder: (context, state) => const ArchiveScreen()),
+        GoRoute(
+          path: '/archive/:archivedId',
+          name: 'archived-detail',
+          builder: (context, state) => ArchivedClassDetailScreen(archivedId: state.pathParameters['archivedId'] ?? ''),
+        ),
+        GoRoute(path: '/settings', name: 'settings', builder: (context, state) => SettingsScreen(controller: controller)),
+        GoRoute(path: '/asset-test', name: 'asset-test', builder: (context, state) => const AssetTestScreen()),
+        GoRoute(
+          path: '/image/:imageId',
+          name: 'image-viewer',
+          builder: (context, state) => ImageViewerScreen(imageId: state.pathParameters['imageId'] ?? ''),
+        ),
+      ],
+      errorBuilder: (context, state) => PageNotFoundScreen(
+        location: state.uri.toString(),
+        onGoHome: () => context.go('/'),
       ),
     );
-  }
-}
-
-class LocalFormScreen extends StatefulWidget {
-  const LocalFormScreen({super.key});
-
-  @override
-  State<LocalFormScreen> createState() => _LocalFormScreenState();
-}
-
-class _LocalFormScreenState extends State<LocalFormScreen> {
-  final controller = TextEditingController();
-  final students = <String>[];
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  void addStudent() {
-    final name = controller.text.trim();
-    if (name.isEmpty) return;
-    setState(() {
-      students.add(name);
-      controller.clear();
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("Today's Class Form")),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            TextField(
-              controller: controller,
-              decoration: const InputDecoration(
-                labelText: 'Student name',
-                border: OutlineInputBorder(),
-              ),
-              onSubmitted: (_) => addStudent(),
-            ),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: addStudent, child: const Text('Add student')),
-            const SizedBox(height: 16),
-            Expanded(
-              child: students.isEmpty
-                  ? const Center(child: Text('No students added'))
-                  : ListView.builder(
-                      itemCount: students.length,
-                      itemBuilder: (_, index) => ListTile(
-                        leading: const Icon(Icons.person_outline),
-                        title: Text(students[index]),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () => setState(() => students.removeAt(index)),
-                        ),
-                      ),
-                    ),
-            ),
-          ],
+    return AppStateScope(
+      appState: appState,
+      child: AnimatedBuilder(
+        animation: controller,
+        builder: (context, _) => MaterialApp.router(
+          debugShowCheckedModeBanner: false,
+          title: 'CCF Timer',
+          theme: buildLightTheme(),
+          darkTheme: buildDarkTheme(),
+          themeMode: controller.darkMode ? ThemeMode.dark : ThemeMode.light,
+          routerConfig: _router,
         ),
       ),
     );
@@ -232,7 +239,13 @@ class _LocalTimerScreenState extends State<LocalTimerScreen> {
     final minutes = (seconds ~/ 60).toString().padLeft(2, '0');
     final remaining = (seconds % 60).toString().padLeft(2, '0');
     return Scaffold(
-      appBar: AppBar(title: const Text('Local Timer')),
+      appBar: AppBar(
+        title: const Text('Local Timer'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => context.go('/'),
+        ),
+      ),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -251,29 +264,6 @@ class _LocalTimerScreenState extends State<LocalTimerScreen> {
               child: const Text('Reset'),
             ),
           ],
-        ),
-      ),
-    );
-  }
-}
-
-class StaticArchiveScreen extends StatelessWidget {
-  const StaticArchiveScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Static Archive')),
-      body: ListView.separated(
-        padding: const EdgeInsets.all(20),
-        itemCount: 5,
-        separatorBuilder: (_, __) => const SizedBox(height: 8),
-        itemBuilder: (_, index) => Card(
-          child: ListTile(
-            leading: const CircleAvatar(child: Icon(Icons.school_outlined)),
-            title: Text('Sample class ${index + 1}'),
-            subtitle: const Text('Local display data only'),
-          ),
         ),
       ),
     );
