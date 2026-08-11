@@ -15,8 +15,6 @@ class CompletionEvaluator {
         return course.skillsSessionRequired;
       case CourseType.heartsaverCprAed:
       case CourseType.heartsaverFirstAidCprAed:
-        // Temporary restoration-stage assumption:
-        // Heartsaver typically requires adult skills + CCF-style evaluation + test.
         return {
           RequiredComponent.adultChecklist,
           RequiredComponent.ccfEvaluation,
@@ -25,13 +23,77 @@ class CompletionEvaluator {
     }
   }
 
-  static CompletionStatus evaluateStudent({required Student s, required CourseClass course}) {
+  static List<RequiredComponent> orderedRequirements(CourseClass course) {
     final required = requiredForCourse(course);
-    final results = <CompletionStatus>[];
-    for (final c in required) {
-      results.add(_componentStatus(s: s, component: c));
-    }
+    const order = [
+      RequiredComponent.adultChecklist,
+      RequiredComponent.infantChecklist,
+      RequiredComponent.ccfEvaluation,
+      RequiredComponent.writtenTest,
+    ];
+    return order.where(required.contains).toList(growable: false);
+  }
 
+  static CompletionStatus componentStatus({required Student student, required RequiredComponent component}) {
+    switch (component) {
+      case RequiredComponent.adultChecklist:
+        return _checklistStatus(student.adultChecklist);
+      case RequiredComponent.infantChecklist:
+        return _checklistStatus(student.infantChecklist);
+      case RequiredComponent.ccfEvaluation:
+        return _decisionStatus(student.ccf.decision);
+      case RequiredComponent.writtenTest:
+        final score = student.testScore.scorePercent;
+        if (score == null) return CompletionStatus.notStarted;
+        if (student.testScore.decision == ChecklistDecision.notDecided) return CompletionStatus.inProgress;
+        if (!student.testScore.isPass) return CompletionStatus.needsReview;
+        return CompletionStatus.complete;
+    }
+  }
+
+  static Map<RequiredComponent, CompletionStatus> requirementStatuses({
+    required Student student,
+    required CourseClass course,
+  }) {
+    return {
+      for (final component in orderedRequirements(course))
+        component: componentStatus(student: student, component: component),
+    };
+  }
+
+  static int completedRequirementCount({required Student student, required CourseClass course}) {
+    return requirementStatuses(student: student, course: course)
+        .values
+        .where((status) => status == CompletionStatus.complete)
+        .length;
+  }
+
+  static int remainingRequirementCount({required Student student, required CourseClass course}) {
+    final statuses = requirementStatuses(student: student, course: course);
+    return statuses.values.where((status) => status != CompletionStatus.complete).length;
+  }
+
+  static List<RequiredComponent> remediationRequirements({required Student student, required CourseClass course}) {
+    final statuses = requirementStatuses(student: student, course: course);
+    return statuses.entries
+        .where((entry) => entry.value == CompletionStatus.needsReview)
+        .map((entry) => entry.key)
+        .toList(growable: false);
+  }
+
+  static RequiredComponent? nextRequiredComponent({required Student student, required CourseClass course}) {
+    final statuses = requirementStatuses(student: student, course: course);
+    for (final entry in statuses.entries) {
+      if (entry.value == CompletionStatus.needsReview) return entry.key;
+    }
+    for (final entry in statuses.entries) {
+      if (entry.value != CompletionStatus.complete) return entry.key;
+    }
+    return null;
+  }
+
+  static CompletionStatus evaluateStudent({required Student s, required CourseClass course}) {
+    final results = requirementStatuses(student: s, course: course).values.toList(growable: false);
     if (results.isEmpty) return CompletionStatus.notStarted;
     if (results.every((r) => r == CompletionStatus.complete)) return CompletionStatus.complete;
     if (results.any((r) => r == CompletionStatus.needsReview)) return CompletionStatus.needsReview;
@@ -80,23 +142,6 @@ class CompletionEvaluator {
       notStartedCount: notStarted,
       overallStatus: overall,
     );
-  }
-
-  static CompletionStatus _componentStatus({required Student s, required RequiredComponent component}) {
-    switch (component) {
-      case RequiredComponent.adultChecklist:
-        return _checklistStatus(s.adultChecklist);
-      case RequiredComponent.infantChecklist:
-        return _checklistStatus(s.infantChecklist);
-      case RequiredComponent.ccfEvaluation:
-        return _decisionStatus(s.ccf.decision);
-      case RequiredComponent.writtenTest:
-        final score = s.testScore.scorePercent;
-        if (score == null) return CompletionStatus.notStarted;
-        if (s.testScore.decision == ChecklistDecision.notDecided) return CompletionStatus.inProgress;
-        if (!s.testScore.isPass) return CompletionStatus.needsReview;
-        return CompletionStatus.complete;
-    }
   }
 
   static CompletionStatus _checklistStatus(ChecklistAttempt attempt) {
