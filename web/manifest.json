@@ -1,11 +1,11 @@
 {
-    "name": "cpr_instructor_doc",
-    "short_name": "cpr_instructor_doc",
+    "name": "CPRFlow",
+    "short_name": "CPRFlow",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "CPR instructor workflow and CPR quality tracking app.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

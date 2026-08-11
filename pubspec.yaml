@@ -1,5 +1,5 @@
 name: ccf_timer_low_risk_test
-description: Controlled low-risk restoration test.
+description: CPRFlow instructor workflow and CPR quality tracking app.
 publish_to: "none"
 version: 1.0.0+1
 
