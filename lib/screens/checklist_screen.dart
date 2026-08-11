@@ -39,41 +39,78 @@ class ChecklistScreen extends StatefulWidget {
 enum ChecklistKind { adult, infant }
 
 extension on ChecklistKind {
-  String get title => this == ChecklistKind.adult ? 'Adult CPR Checklist' : 'Infant CPR Checklist';
+  String get title => this == ChecklistKind.adult
+      ? 'Adult CPR Checklist'
+      : 'Infant CPR Checklist';
+
+  String get shortTitle =>
+      this == ChecklistKind.adult ? 'Adult CPR' : 'Infant CPR';
 }
 
 class _ChecklistScreenState extends State<ChecklistScreen> {
+  final _pageController = PageController(viewportFraction: 0.94);
+
   Map<String, ChecklistRating> _ratings = {};
   bool _reviewed = false;
   ChecklistDecision _decision = ChecklistDecision.notDecided;
   TextEditingController? _notes;
   Student? _student;
+  int _currentIndex = 0;
+
+  List<ChecklistItemDef> get _items =>
+      widget.kind == ChecklistKind.adult ? _adultItems : _infantItems;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_student != null) return;
+
     final appState = AppStateScope.of(context);
-    final s = appState.getStudent(widget.studentId);
-    _student = s;
-    if (s == null) return;
-    final attempt = widget.kind == ChecklistKind.adult ? s.adultChecklist : s.infantChecklist;
+    final student = appState.getStudent(widget.studentId);
+    _student = student;
+    if (student == null) return;
+
+    final attempt = widget.kind == ChecklistKind.adult
+        ? student.adultChecklist
+        : student.infantChecklist;
+
     _ratings = Map.of(attempt.ratings);
     _reviewed = attempt.reviewed;
     _decision = attempt.decision;
     _notes = TextEditingController(text: attempt.instructorNotes);
+
+    final firstIncomplete = _items.indexWhere(
+      (item) =>
+          (_ratings[item.id] ?? ChecklistRating.notEvaluated) ==
+          ChecklistRating.notEvaluated,
+    );
+    if (firstIncomplete >= 0) _currentIndex = firstIncomplete;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_pageController.hasClients && _currentIndex > 0) {
+        _pageController.jumpToPage(_currentIndex);
+      }
+    });
   }
 
   @override
   void dispose() {
+    _pageController.dispose();
     _notes?.dispose();
     super.dispose();
   }
 
-  List<ChecklistItemDef> get _items => widget.kind == ChecklistKind.adult ? _adultItems : _infantItems;
-
-  void _setRating(String itemId, ChecklistRating rating) {
+  void _rateAndAdvance(String itemId, ChecklistRating rating) {
     setState(() => _ratings[itemId] = rating);
+
+    if (_currentIndex >= _items.length - 1) return;
+    Future<void>.delayed(const Duration(milliseconds: 100), () {
+      if (!mounted || !_pageController.hasClients) return;
+      _pageController.nextPage(
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   Future<void> _save() async {
@@ -81,7 +118,16 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
     final notes = (_notes?.text ?? '').trim();
 
     if (_reviewed) {
-      final meta = _items.map((i) => cv.ChecklistItemMeta(id: i.id, title: i.title, required: i.required)).toList(growable: false);
+      final meta = _items
+          .map(
+            (item) => cv.ChecklistItemMeta(
+              id: item.id,
+              title: item.title,
+              required: item.required,
+            ),
+          )
+          .toList(growable: false);
+
       final validation = cv.ChecklistValidationHelper.validateForReview(
         items: meta,
         ratings: _ratings,
@@ -90,7 +136,9 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
       );
 
       if (!validation.canSave) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(validation.messages.first)));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(validation.messages.first)),
+        );
         return;
       }
 
@@ -101,8 +149,14 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
             title: Text(validation.confirmationTitle ?? 'Confirm'),
             content: Text(validation.messages.join('\n\n')),
             actions: [
-              TextButton(onPressed: () => context.pop(false), child: const Text('Cancel')),
-              FilledButton(onPressed: () => context.pop(true), child: const Text('Confirm & Save')),
+              TextButton(
+                onPressed: () => context.pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => context.pop(true),
+                child: const Text('Confirm & Save'),
+              ),
             ],
           ),
         );
@@ -127,14 +181,17 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
         instructorNotes: notes,
       );
     }
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Checklist saved (temporary).')));
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${widget.kind.title} saved.')),
+    );
     context.pop();
   }
 
   @override
   Widget build(BuildContext context) {
-    final s = _student;
-    if (s == null) {
+    final student = _student;
+    if (student == null) {
       return SafeErrorScreen(
         title: 'Student not found',
         message: 'The student identifier is invalid or the student was removed.',
@@ -143,67 +200,123 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
       );
     }
 
-    final meta = _items.map((i) => cv.ChecklistItemMeta(id: i.id, title: i.title, required: i.required)).toList(growable: false);
-    final summary = cv.ChecklistValidationHelper.summarize(items: meta, ratings: _ratings);
+    final evaluatedCount = _items.where((item) {
+      return (_ratings[item.id] ?? ChecklistRating.notEvaluated) !=
+          ChecklistRating.notEvaluated;
+    }).length;
+    final progress = _items.isEmpty ? 0.0 : evaluatedCount / _items.length;
+
+    final meta = _items
+        .map(
+          (item) => cv.ChecklistItemMeta(
+            id: item.id,
+            title: item.title,
+            required: item.required,
+          ),
+        )
+        .toList(growable: false);
+    final summary = cv.ChecklistValidationHelper.summarize(
+      items: meta,
+      ratings: _ratings,
+    );
+
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.kind.title),
-        leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => context.pop()),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back_rounded),
+          onPressed: () => context.pop(),
+        ),
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 110),
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(s.fullName.isEmpty ? 'Student' : s.fullName, style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        _MetricChip(label: 'Total', value: '${summary.totalItems}'),
-                        _MetricChip(label: 'Applicable', value: '${summary.applicableItems}'),
-                        _MetricChip(label: 'Evaluated', value: '${summary.evaluatedApplicableItems}'),
-                        _MetricChip(label: 'Meets', value: '${summary.meetsCriteriaCount}'),
-                        _MetricChip(label: 'Needs', value: '${summary.needsImprovementCount}'),
-                        _MetricChip(label: 'N/A', value: '${summary.notApplicableCount}'),
-                        _MetricChip(label: 'Not eval', value: '${summary.notEvaluatedCount}'),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    if (!summary.isReadyForReview)
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        'Not ready for instructor review: ${summary.notEvaluatedCount} applicable item(s) are still Not Evaluated.',
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        student.fullName.isEmpty ? 'Student' : student.fullName,
+                        style: Theme.of(context).textTheme.titleMedium,
                       ),
-                    if (summary.needsImprovementTitles.isNotEmpty) ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 2),
                       Text(
-                        'Skills needing improvement:',
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelLarge
-                            ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                        '${widget.kind.shortTitle} • Skill ${_currentIndex + 1} of ${_items.length}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
                       ),
-                      const SizedBox(height: 6),
-                      ...summary.needsImprovementTitles.take(5).map((t) => Text('• $t')),
-                      if (summary.needsImprovementTitles.length > 5)
-                        Text('• +${summary.needsImprovementTitles.length - 5} more'),
                     ],
-                  ],
+                  ),
                 ),
+                Text(
+                  '$evaluatedCount/${_items.length}',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(value: progress.clamp(0.0, 1.0)),
+            const SizedBox(height: 14),
+            SizedBox(
+              height: 510,
+              child: PageView.builder(
+                controller: _pageController,
+                itemCount: _items.length,
+                onPageChanged: (index) => setState(() => _currentIndex = index),
+                itemBuilder: (context, index) {
+                  final item = _items[index];
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 5),
+                    child: _SkillCard(
+                      item: item,
+                      position: index + 1,
+                      total: _items.length,
+                      rating: _ratings[item.id] ?? ChecklistRating.notEvaluated,
+                      onRating: (rating) => _rateAndAdvance(item.id, rating),
+                    ),
+                  );
+                },
               ),
             ),
-            const SizedBox(height: 12),
-            ..._buildCategorySections(context),
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                IconButton(
+                  tooltip: 'Previous skill',
+                  onPressed: _currentIndex == 0
+                      ? null
+                      : () => _pageController.previousPage(
+                            duration: const Duration(milliseconds: 240),
+                            curve: Curves.easeOut,
+                          ),
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Swipe left or right',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: 'Next skill',
+                  onPressed: _currentIndex >= _items.length - 1
+                      ? null
+                      : () => _pageController.nextPage(
+                            duration: const Duration(milliseconds: 240),
+                            curve: Curves.easeOut,
+                          ),
+                  icon: const Icon(Icons.arrow_forward_ios_rounded),
+                ),
+              ],
+            ),
             const SizedBox(height: 12),
             Card(
               child: Padding(
@@ -213,46 +326,64 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
                   children: [
                     Row(
                       children: [
-                        Expanded(child: Text('Review decision', style: Theme.of(context).textTheme.titleMedium)),
-                        Switch.adaptive(value: _reviewed, onChanged: (v) => setState(() => _reviewed = v)),
+                        Expanded(
+                          child: Text(
+                            'Final ${widget.kind.title} review',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                        ),
+                        Switch.adaptive(
+                          value: _reviewed,
+                          onChanged: (value) =>
+                              setState(() => _reviewed = value),
+                        ),
                       ],
                     ),
-                    const SizedBox(height: 10),
+                    const SizedBox(height: 6),
+                    Text(
+                      summary.isReadyForReview
+                          ? 'All applicable skills have been evaluated.'
+                          : '${summary.notEvaluatedCount} skill(s) still need a rating.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
                     SegmentedButton<ChecklistDecision>(
                       segments: const [
-                        ButtonSegment(value: ChecklistDecision.pass, label: Text('Pass'), icon: Icon(Icons.check_circle_outline)),
-                        ButtonSegment(value: ChecklistDecision.needsReview, label: Text('Needs Remediation'), icon: Icon(Icons.error_outline)),
+                        ButtonSegment(
+                          value: ChecklistDecision.pass,
+                          label: Text('Pass'),
+                          icon: Icon(Icons.check_circle_outline),
+                        ),
+                        ButtonSegment(
+                          value: ChecklistDecision.needsReview,
+                          label: Text('Needs Remediation'),
+                          icon: Icon(Icons.error_outline),
+                        ),
                       ],
-                      selected: {_decision}.where((d) => d != ChecklistDecision.notDecided).toSet(),
-                      onSelectionChanged: (set) {
-                        if (set.isEmpty) {
-                          setState(() => _decision = ChecklistDecision.notDecided);
-                        } else {
-                          setState(() => _decision = set.first);
-                        }
-                      },
+                      selected: {_decision}
+                          .where((d) => d != ChecklistDecision.notDecided)
+                          .toSet(),
+                      onSelectionChanged: (set) => setState(
+                        () => _decision = set.isEmpty
+                            ? ChecklistDecision.notDecided
+                            : set.first,
+                      ),
                       emptySelectionAllowed: true,
                       multiSelectionEnabled: false,
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _notes,
-                      decoration: const InputDecoration(labelText: 'Instructor notes', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Instructor notes',
+                        border: OutlineInputBorder(),
+                      ),
                       maxLines: 3,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Not Applicable items are excluded from failure calculations.',
-                      style: Theme.of(context)
-                          .textTheme
-                          .bodySmall
-                          ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 90),
           ],
         ),
       ),
@@ -262,118 +393,134 @@ class _ChecklistScreenState extends State<ChecklistScreen> {
           child: FilledButton.icon(
             onPressed: _save,
             icon: const Icon(Icons.save_rounded),
-            label: const Text('Save Checklist'),
+            label: Text('Save ${widget.kind.title}'),
           ),
         ),
       ),
     );
   }
+}
 
-  List<Widget> _buildCategorySections(BuildContext context) {
-    final grouped = <String, List<ChecklistItemDef>>{};
-    for (final item in _items) {
-      grouped.putIfAbsent(item.category, () => <ChecklistItemDef>[]).add(item);
-    }
+class _SkillCard extends StatelessWidget {
+  const _SkillCard({
+    required this.item,
+    required this.position,
+    required this.total,
+    required this.rating,
+    required this.onRating,
+  });
 
-    final categories = grouped.keys.toList(growable: false);
-    return categories.map((category) {
-      final items = grouped[category]!;
-      return Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+  final ChecklistItemDef item;
+  final int position;
+  final int total;
+  final ChecklistRating rating;
+  final ValueChanged<ChecklistRating> onRating;
+
+  @override
+  Widget build(BuildContext context) {
+    final asset = item.imageId == null ? null : CprImageCatalog.byId(item.imageId!);
+    final cs = Theme.of(context).colorScheme;
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(22),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(category, style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                ...items.map((i) => _ChecklistRow(
-                      title: i.title,
-                       instruction: i.instruction,
-                       imageId: i.imageId,
-                      rating: _ratings[i.id] ?? ChecklistRating.notEvaluated,
-                      onChanged: (r) => _setRating(i.id, r),
-                    )),
+                Expanded(
+                  child: Text(
+                    item.category.toUpperCase(),
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: cs.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                ),
+                Text(
+                  '$position / $total',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
               ],
             ),
-          ),
-        ),
-      );
-    }).toList(growable: false);
-  }
-}
-
-class _ChecklistRow extends StatelessWidget {
-  const _ChecklistRow({required this.title, required this.instruction, required this.imageId, required this.rating, required this.onChanged});
-
-  final String title;
-  final String instruction;
-  final String? imageId;
-  final ChecklistRating rating;
-  final ValueChanged<ChecklistRating> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final asset = imageId == null ? null : CprImageCatalog.byId(imageId!);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 4),
-          Text(
-            instruction,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant, height: 1.45),
-          ),
-          if (asset != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              item.title,
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
             const SizedBox(height: 10),
-            ChecklistInstructionImage(asset: asset, skillTitle: title),
-          ],
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: SizedBox(
-              width: 200,
-              child: DropdownButtonFormField<ChecklistRating>(
-                value: rating,
-                decoration: const InputDecoration(border: OutlineInputBorder(), isDense: true, contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 10)),
-                items: ChecklistRating.values
-                    .map((r) => DropdownMenuItem(value: r, child: Text(r.label, overflow: TextOverflow.ellipsis)))
-                    .toList(growable: false),
-                onChanged: (v) {
-                  if (v == null) return;
-                  onChanged(v);
-                },
+            Text(
+              item.instruction,
+              style: Theme.of(context).textTheme.bodyLarge?.copyWith(height: 1.4),
+            ),
+            const SizedBox(height: 12),
+            if (asset != null)
+              Expanded(
+                child: Center(
+                  child: ChecklistInstructionImage(
+                    asset: asset,
+                    skillTitle: item.title,
+                  ),
+                ),
+              )
+            else
+              const Spacer(),
+            if (rating != ChecklistRating.notEvaluated) ...[
+              const SizedBox(height: 8),
+              Center(
+                child: Text(
+                  'Current: ${rating.label}',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: SizedBox(
+                    height: 60,
+                    child: FilledButton.icon(
+                      onPressed: () =>
+                          onRating(ChecklistRating.meetsCriteria),
+                      icon: const Icon(Icons.check_rounded),
+                      label: const Text(
+                        'PASS',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: SizedBox(
+                    height: 60,
+                    child: OutlinedButton.icon(
+                      onPressed: () =>
+                          onRating(ChecklistRating.needsImprovement),
+                      icon: const Icon(Icons.close_rounded),
+                      label: const Text(
+                        'NEEDS WORK',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Center(
+              child: TextButton(
+                onPressed: () => onRating(ChecklistRating.notApplicable),
+                child: const Text('Not Applicable'),
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MetricChip extends StatelessWidget {
-  const _MetricChip({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(14)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(label, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant)),
-          const SizedBox(width: 8),
-          Text(value, style: Theme.of(context).textTheme.titleSmall),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -412,21 +559,21 @@ const _adultItems = <ChecklistItemDef>[
     id: 'hand_placement',
     category: 'Compressions',
     title: 'Correct hand placement',
-    instruction: 'Place the heel of your hand on the center of the chest, other hand on top. Keep fingers off ribs.',
+    instruction: 'Place the heel of one hand on the center of the chest, place the other hand on top, and keep fingers off the ribs.',
     imageId: 'adult_hand_placement',
   ),
   ChecklistItemDef(
     id: 'compression_rate',
     category: 'Compressions',
     title: 'Compression rate',
-    instruction: 'Maintain 100–120 compressions per minute with consistent rhythm.',
+    instruction: 'Maintain 100–120 compressions per minute with a consistent rhythm.',
     imageId: null,
   ),
   ChecklistItemDef(
     id: 'compression_depth',
     category: 'Compressions',
     title: 'Compression depth',
-    instruction: 'Compress at least 2 inches (5 cm) and allow full recoil.',
+    instruction: 'Compress at least 2 inches (5 cm), avoid excessive depth, and allow full recoil.',
     imageId: 'adult_compression_depth',
   ),
   ChecklistItemDef(
@@ -440,14 +587,14 @@ const _adultItems = <ChecklistItemDef>[
     id: 'interruptions',
     category: 'Compressions',
     title: 'Minimal interruptions',
-    instruction: 'Minimize pauses in compressions; resume immediately after analysis/shock.',
+    instruction: 'Minimize pauses in compressions and resume immediately after analysis or shock.',
     imageId: null,
   ),
   ChecklistItemDef(
     id: 'open_airway',
     category: 'Ventilations',
     title: 'Opening airway',
-    instruction: 'Use head tilt–chin lift unless trauma suspected.',
+    instruction: 'Use head tilt–chin lift unless trauma is suspected.',
     imageId: null,
   ),
   ChecklistItemDef(
@@ -468,14 +615,14 @@ const _adultItems = <ChecklistItemDef>[
     id: 'aed_operation',
     category: 'AED',
     title: 'AED operation',
-    instruction: 'Turn on AED, follow prompts, and apply pads to bare, dry chest.',
+    instruction: 'Turn on the AED, follow prompts, and apply pads to a bare, dry chest.',
     imageId: 'adult_aed_pads',
   ),
   ChecklistItemDef(
     id: 'resume_cpr',
     category: 'AED',
-    title: 'Resuming compressions after shock/no-shock',
-    instruction: 'Resume compressions immediately after shock or “no shock advised”.',
+    title: 'Resume compressions after shock/no shock',
+    instruction: 'Resume compressions immediately after a shock or a no-shock-advised decision.',
     imageId: null,
   ),
 ];
@@ -512,22 +659,22 @@ const _infantItems = <ChecklistItemDef>[
   ChecklistItemDef(
     id: 'one_rescuer',
     category: 'Compressions',
-    title: 'One-rescuer compression technique',
-    instruction: 'Use two fingers on the center of the chest just below the nipple line.',
-    imageId: 'infant_two_finger',
+    title: 'Infant compression technique',
+    instruction: 'Use the heel of one hand or the two-thumb encircling-hands technique on the center of the chest.',
+    imageId: null,
   ),
   ChecklistItemDef(
     id: 'two_thumb',
     category: 'Compressions',
-    title: 'Two-thumb encircling technique',
-    instruction: 'Encircle the chest with both hands; place both thumbs on the center of the chest.',
+    title: 'Two-thumb encircling-hands technique',
+    instruction: 'Encircle the chest with both hands and place both thumbs on the center of the chest.',
     imageId: 'infant_two_thumb_encircling',
   ),
   ChecklistItemDef(
     id: 'compression_depth',
     category: 'Compressions',
     title: 'Correct compression depth',
-    instruction: 'Compress about 1.5 inches (4 cm) or one-third the anterior-posterior diameter.',
+    instruction: 'Compress about 1.5 inches (4 cm), or one-third the anterior-posterior diameter of the chest.',
     imageId: 'infant_compression_depth',
   ),
   ChecklistItemDef(
@@ -548,14 +695,14 @@ const _infantItems = <ChecklistItemDef>[
     id: 'interruptions',
     category: 'Compressions',
     title: 'Minimal interruptions',
-    instruction: 'Minimize pauses in compressions; resume immediately after analysis/shock.',
+    instruction: 'Minimize pauses in compressions and resume immediately after analysis or shock.',
     imageId: null,
   ),
   ChecklistItemDef(
     id: 'open_airway',
     category: 'Ventilations',
     title: 'Opening airway',
-    instruction: 'Use head tilt–chin lift unless trauma suspected.',
+    instruction: 'Use head tilt–chin lift unless trauma is suspected.',
     imageId: null,
   ),
   ChecklistItemDef(
@@ -590,7 +737,7 @@ const _infantItems = <ChecklistItemDef>[
     id: 'resume_cpr',
     category: 'AED',
     title: 'Resuming CPR',
-    instruction: 'Resume compressions immediately after shock or “no shock advised”.',
+    instruction: 'Resume compressions immediately after a shock or a no-shock-advised decision.',
     imageId: null,
   ),
 ];
