@@ -15,11 +15,11 @@ class TemporaryDataBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline, color: cs.onSurfaceVariant),
+          Icon(Icons.save_outlined, color: cs.onSurfaceVariant),
           const SizedBox(width: 10),
           const Expanded(
             child: Text(
-              'Restoration stage: class workflow data is temporary and resets when Preview restarts.',
+              'Class, student, checklist, CCF, score, and archive data are saved locally on this device.',
             ),
           ),
         ],
