@@ -72,7 +72,7 @@ class _CcfEvaluationScreenState extends State<CcfEvaluationScreen> {
   }
 
   int? get _fractionForSave {
-    if (_totalSeconds > 0) return _liveCcfPercent.round().clamp(0, 100);
+    if (_totalSeconds > 0) return _liveCcfPercent.round().clamp(0, 100).toInt();
     return _savedFraction;
   }
 
@@ -227,7 +227,7 @@ class _CcfEvaluationScreenState extends State<CcfEvaluationScreen> {
     }
 
     final displayFraction = _totalSeconds > 0 ? _liveCcfPercent.round() : _savedFraction;
-    final pauseSeconds = (_totalSeconds - _compressionSeconds).clamp(0, _totalSeconds);
+    final pauseSeconds = (_totalSeconds - _compressionSeconds).clamp(0, _totalSeconds).toInt();
     final cs = Theme.of(context).colorScheme;
 
     return GestureDetector(
