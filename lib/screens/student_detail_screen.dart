@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:ccf_timer_low_risk_test/app/app_state.dart';
 import 'package:ccf_timer_low_risk_test/app/app_state_scope.dart';
+import 'package:ccf_timer_low_risk_test/app/completion_evaluator.dart';
 import 'package:ccf_timer_low_risk_test/app/models.dart';
 import 'package:ccf_timer_low_risk_test/screens/safe_error_screen.dart';
 import 'package:ccf_timer_low_risk_test/screens/widgets/status_pill.dart';
@@ -16,26 +17,32 @@ class StudentDetailScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final appState = AppStateScope.of(context);
     final s = appState.getStudent(studentId);
-    if (s == null) {
+    final course = appState.currentClass;
+    if (s == null || course == null) {
       return SafeErrorScreen(
-        title: 'Student not found',
-        message: 'The student identifier is invalid or the student was removed.',
+        title: s == null ? 'Student not found' : 'No active class',
+        message: s == null
+            ? 'The student identifier is invalid or the student was removed.'
+            : 'Open an active class to review student requirements.',
         primaryActionLabel: "Back to Today's Class",
         onPrimaryAction: () => context.go('/today-class'),
       );
     }
 
-    final status = appState.completionForStudent(s);
+    final status = CompletionEvaluator.evaluateStudent(s: s, course: course);
+    final statuses = CompletionEvaluator.requirementStatuses(student: s, course: course);
+    final total = statuses.length;
+    final completed = statuses.values.where((value) => value == CompletionStatus.complete).length;
+    final remaining = total - completed;
+    final remediations = CompletionEvaluator.remediationRequirements(student: s, course: course);
+    final next = CompletionEvaluator.nextRequiredComponent(student: s, course: course);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Student'),
         leading: IconButton(icon: const Icon(Icons.arrow_back_rounded), onPressed: () => context.pop()),
         actions: [
-          IconButton(
-            tooltip: 'Edit',
-            onPressed: () => context.push('/students/$studentId/edit'),
-            icon: const Icon(Icons.edit_outlined),
-          ),
+          IconButton(tooltip: 'Edit', onPressed: () => context.push('/students/$studentId/edit'), icon: const Icon(Icons.edit_outlined)),
         ],
       ),
       body: SafeArea(
@@ -50,98 +57,69 @@ class StudentDetailScreen extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Expanded(
-                          child: Text(
-                            s.fullName.isEmpty ? 'Unnamed student' : s.fullName,
-                            style: Theme.of(context).textTheme.titleLarge,
-                          ),
-                        ),
+                        Expanded(child: Text(s.fullName.isEmpty ? 'Unnamed student' : s.fullName, style: Theme.of(context).textTheme.titleLarge)),
                         StatusPill(status: status),
                       ],
                     ),
                     const SizedBox(height: 8),
-                    _InfoRow(label: 'Email', value: s.email),
-                    _InfoRow(label: 'Phone', value: s.phone),
-                    _InfoRow(label: 'Student ID', value: s.studentId),
+                    Text(course.courseType.label, style: Theme.of(context).textTheme.labelLarge),
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(value: total == 0 ? 0 : completed / total),
+                    const SizedBox(height: 8),
+                    Text('$completed of $total required items complete', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
                   ],
                 ),
               ),
             ),
             const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Progress', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 10),
-                    _ProgressRow(title: 'Adult checklist', status: _checklistStatus(s.adultChecklist)),
-                    const SizedBox(height: 8),
-                    _ProgressRow(title: 'Infant checklist', status: _checklistStatus(s.infantChecklist)),
-                    const SizedBox(height: 8),
-                    _ProgressRow(title: 'CCF evaluation', status: _decisionStatus(s.ccf.decision)),
-                    const SizedBox(height: 8),
-                    _ProgressRow(
-                      title: 'Written test',
-                      status: s.testScore.scorePercent == null
-                          ? CompletionStatus.notStarted
-                          : (s.testScore.decision == ChecklistDecision.notDecided
-                              ? CompletionStatus.inProgress
-                              : (s.testScore.isPass ? CompletionStatus.complete : CompletionStatus.needsReview)),
-                    ),
-                  ],
-                ),
-              ),
+            _PriorityCard(
+              status: status,
+              remaining: remaining,
+              remediationCount: remediations.length,
+              next: next,
+              studentId: studentId,
             ),
             const SizedBox(height: 12),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Instructor notes', style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 8),
-                    Text(
-                      s.notes.trim().isEmpty ? '—' : s.notes.trim(),
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                  ],
+            Text('Requirements', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 8),
+            ...statuses.entries.map((entry) => Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _RequirementTile(
+                    component: entry.key,
+                    status: entry.value,
+                    onTap: () => context.push(_routeFor(studentId, entry.key)),
+                  ),
+                )),
+            if (status == CompletionStatus.complete) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 58,
+                child: FilledButton.icon(
+                  onPressed: () => _completeStudent(context, s),
+                  icon: const Icon(Icons.verified_rounded),
+                  label: const Text('Complete Student', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
                 ),
               ),
-            ),
+            ],
             const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: () => context.push('/students/$studentId/adult-checklist'),
-              icon: const Icon(Icons.checklist_rounded),
-              label: const Text('Open Adult Checklist'),
+            Card(
+              child: ExpansionTile(
+                title: const Text('Student details & notes'),
+                childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                children: [
+                  _InfoRow(label: 'Email', value: s.email),
+                  _InfoRow(label: 'Phone', value: s.phone),
+                  _InfoRow(label: 'Student ID', value: s.studentId),
+                  const SizedBox(height: 6),
+                  Align(alignment: Alignment.centerLeft, child: Text('Instructor notes', style: Theme.of(context).textTheme.labelLarge)),
+                  const SizedBox(height: 4),
+                  Align(alignment: Alignment.centerLeft, child: Text(s.notes.trim().isEmpty ? '—' : s.notes.trim())),
+                ],
+              ),
             ),
             const SizedBox(height: 10),
-            FilledButton.icon(
-              onPressed: () => context.push('/students/$studentId/infant-checklist'),
-              icon: const Icon(Icons.checklist_rounded),
-              label: const Text('Open Infant Checklist'),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () => context.push('/students/$studentId/ccf'),
-              icon: const Icon(Icons.timer_rounded),
-              label: const Text('Open CCF Evaluation'),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () => context.push('/students/$studentId/test-score'),
-              icon: const Icon(Icons.quiz_outlined),
-              label: const Text('Enter Test Score'),
-            ),
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () => context.push('/students/$studentId/edit'),
-              icon: const Icon(Icons.edit_outlined),
-              label: const Text('Edit Student'),
-            ),
-            const SizedBox(height: 10),
+            OutlinedButton.icon(onPressed: () => context.push('/students/$studentId/edit'), icon: const Icon(Icons.edit_outlined), label: const Text('Edit Student')),
+            const SizedBox(height: 6),
             TextButton.icon(
               onPressed: () => _confirmRemove(context: context, appState: appState, student: s),
               icon: Icon(Icons.delete_outline, color: Theme.of(context).colorScheme.error),
@@ -153,17 +131,19 @@ class StudentDetailScreen extends StatelessWidget {
     );
   }
 
-  CompletionStatus _decisionStatus(ChecklistDecision d) => switch (d) {
-        ChecklistDecision.notDecided => CompletionStatus.notStarted,
-        ChecklistDecision.pass => CompletionStatus.complete,
-        ChecklistDecision.needsReview => CompletionStatus.needsReview,
-      };
-
-  CompletionStatus _checklistStatus(ChecklistAttempt a) {
-    if (a.decision == ChecklistDecision.pass && a.reviewed) return CompletionStatus.complete;
-    if (a.decision == ChecklistDecision.needsReview && a.reviewed) return CompletionStatus.needsReview;
-    final anyTouched = a.ratings.values.any((r) => r != ChecklistRating.notEvaluated);
-    return anyTouched ? CompletionStatus.inProgress : CompletionStatus.notStarted;
+  Future<void> _completeStudent(BuildContext context, Student student) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Student requirements complete'),
+        content: Text('${student.fullName.isEmpty ? 'This student' : student.fullName} has completed every required component for this class.'),
+        actions: [
+          TextButton(onPressed: () => context.pop(false), child: const Text('Stay Here')),
+          FilledButton(onPressed: () => context.pop(true), child: const Text("Return to Today's Class")),
+        ],
+      ),
+    );
+    if (confirmed == true && context.mounted) context.go('/today-class');
   }
 
   Future<void> _confirmRemove({required BuildContext context, required AppState appState, required Student student}) async {
@@ -171,7 +151,7 @@ class StudentDetailScreen extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Remove student?'),
-        content: Text('This removes ${student.fullName.isEmpty ? 'this student' : student.fullName} from the current class (temporary).'),
+        content: Text('This removes ${student.fullName.isEmpty ? 'this student' : student.fullName} from the current class.'),
         actions: [
           TextButton(onPressed: () => context.pop(false), child: const Text('Cancel')),
           FilledButton(onPressed: () => context.pop(true), child: const Text('Remove')),
@@ -181,14 +161,110 @@ class StudentDetailScreen extends StatelessWidget {
     if (ok != true) return;
     appState.removeStudent(student.id);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Student removed (temporary).')));
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Student removed.')));
     context.go('/today-class');
   }
 }
 
+class _PriorityCard extends StatelessWidget {
+  const _PriorityCard({required this.status, required this.remaining, required this.remediationCount, required this.next, required this.studentId});
+  final CompletionStatus status;
+  final int remaining;
+  final int remediationCount;
+  final RequiredComponent? next;
+  final String studentId;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final title = status == CompletionStatus.complete
+        ? 'All requirements complete'
+        : remediationCount > 0
+            ? 'Remediation needed'
+            : '$remaining ${remaining == 1 ? 'requirement' : 'requirements'} remaining';
+    final subtitle = status == CompletionStatus.complete
+        ? 'This student is ready to complete the class workflow.'
+        : remediationCount > 0
+            ? '$remediationCount required ${remediationCount == 1 ? 'item needs' : 'items need'} instructor follow-up.'
+            : 'Continue with the next required item below.';
+
+    return Card(
+      color: status == CompletionStatus.needsReview ? cs.errorContainer : (status == CompletionStatus.complete ? cs.primaryContainer : null),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(subtitle),
+            if (next != null) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => context.push(_routeFor(studentId, next!)),
+                  icon: Icon(remediationCount > 0 ? Icons.build_circle_outlined : Icons.arrow_forward_rounded),
+                  label: Text(remediationCount > 0 ? 'Open Remediation: ${next!.label}' : 'Next Required: ${next!.label}'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RequirementTile extends StatelessWidget {
+  const _RequirementTile({required this.component, required this.status, required this.onTap});
+  final RequiredComponent component;
+  final CompletionStatus status;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final icon = switch (status) {
+      CompletionStatus.complete => Icons.check_circle_rounded,
+      CompletionStatus.needsReview => Icons.error_rounded,
+      CompletionStatus.inProgress => Icons.timelapse_rounded,
+      CompletionStatus.notStarted => Icons.radio_button_unchecked_rounded,
+    };
+    final iconColor = switch (status) {
+      CompletionStatus.complete => cs.primary,
+      CompletionStatus.needsReview => cs.error,
+      CompletionStatus.inProgress => cs.tertiary,
+      CompletionStatus.notStarted => cs.onSurfaceVariant,
+    };
+    return Card(
+      child: ListTile(
+        onTap: onTap,
+        leading: Icon(icon, color: iconColor, size: 30),
+        title: Text(_displayLabel(component)),
+        subtitle: Text(status == CompletionStatus.needsReview ? 'Needs remediation' : status.label),
+        trailing: const Icon(Icons.chevron_right_rounded),
+      ),
+    );
+  }
+
+  String _displayLabel(RequiredComponent c) => switch (c) {
+        RequiredComponent.adultChecklist => 'Adult CPR Checklist',
+        RequiredComponent.infantChecklist => 'Infant CPR Checklist',
+        RequiredComponent.ccfEvaluation => 'CCF Evaluation',
+        RequiredComponent.writtenTest => 'Written Test',
+      };
+}
+
+String _routeFor(String id, RequiredComponent c) => switch (c) {
+      RequiredComponent.adultChecklist => '/students/$id/adult-checklist',
+      RequiredComponent.infantChecklist => '/students/$id/infant-checklist',
+      RequiredComponent.ccfEvaluation => '/students/$id/ccf',
+      RequiredComponent.writtenTest => '/students/$id/test-score',
+    };
+
 class _InfoRow extends StatelessWidget {
   const _InfoRow({required this.label, required this.value});
-
   final String label;
   final String value;
 
@@ -204,23 +280,6 @@ class _InfoRow extends StatelessWidget {
           Expanded(child: Text(value.trim().isEmpty ? '—' : value.trim())),
         ],
       ),
-    );
-  }
-}
-
-class _ProgressRow extends StatelessWidget {
-  const _ProgressRow({required this.title, required this.status});
-
-  final String title;
-  final CompletionStatus status;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(child: Text(title)),
-        StatusPill(status: status),
-      ],
     );
   }
 }
