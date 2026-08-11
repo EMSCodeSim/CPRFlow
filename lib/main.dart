@@ -34,6 +34,7 @@ Future<void> main() async {
     initialDarkMode: boot.darkMode,
     initialInstructorName: boot.instructorName,
     initialLaunchCount: boot.launchCount,
+    initialWorkflowSnapshotJson: boot.workflowSnapshotJson,
     showPrefsLoadError: boot.showPrefsLoadError,
     preferencesService: boot.preferencesService,
   ));
@@ -44,6 +45,7 @@ class _BootResult {
     required this.darkMode,
     required this.instructorName,
     required this.launchCount,
+    required this.workflowSnapshotJson,
     required this.showPrefsLoadError,
     required this.preferencesService,
   });
@@ -51,6 +53,7 @@ class _BootResult {
   final bool darkMode;
   final String instructorName;
   final int launchCount;
+  final String? workflowSnapshotJson;
   final bool showPrefsLoadError;
   final PreferencesService? preferencesService;
 }
@@ -64,6 +67,7 @@ Future<_BootResult> _bootWithTimeout() async {
       darkMode: service.darkMode,
       instructorName: service.instructorName,
       launchCount: nextLaunchCount,
+      workflowSnapshotJson: service.workflowSnapshotJson,
       showPrefsLoadError: !launchCountSaved,
       preferencesService: service,
     );
@@ -77,6 +81,7 @@ Future<_BootResult> _bootWithTimeout() async {
     darkMode: false,
     instructorName: '',
     launchCount: 0,
+    workflowSnapshotJson: null,
     showPrefsLoadError: true,
     preferencesService: null,
   );
@@ -87,6 +92,7 @@ class LowRiskTestApp extends StatefulWidget {
     required this.initialDarkMode,
     required this.initialInstructorName,
     required this.initialLaunchCount,
+    required this.initialWorkflowSnapshotJson,
     required this.showPrefsLoadError,
     required this.preferencesService,
     super.key,
@@ -95,6 +101,7 @@ class LowRiskTestApp extends StatefulWidget {
   final bool initialDarkMode;
   final String initialInstructorName;
   final int initialLaunchCount;
+  final String? initialWorkflowSnapshotJson;
   final bool showPrefsLoadError;
   final PreferencesService? preferencesService;
 
@@ -118,7 +125,10 @@ class _LowRiskTestAppState extends State<LowRiskTestApp> {
       showPrefsLoadError: widget.showPrefsLoadError,
     );
 
-    appState = AppState();
+    appState = AppState(
+      preferencesService: widget.preferencesService,
+      initialSnapshotJson: widget.initialWorkflowSnapshotJson,
+    );
 
     _router = GoRouter(
       initialLocation: '/',
